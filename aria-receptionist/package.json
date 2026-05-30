@@ -1,0 +1,18 @@
+{
+  "name": "callmate",
+  "version": "1.0.0",
+  "description": "CallMate — AI Receptionist SaaS",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  }
+}
