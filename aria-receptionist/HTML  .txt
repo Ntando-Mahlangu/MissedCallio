@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>CallMate — AI Receptionist for Small Businesses</title>
+<title>MissedCall — AI Receptionist for Small Businesses</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -495,7 +495,7 @@ footer {
 
 <!-- NAV -->
 <nav>
-  <div class="logo">Call<span>Mate</span></div>
+  <div class="logo">Missed<span>Call</span></div>
   <a href="#how">How it works</a>
   <a href="#pricing">Pricing</a>
   <a href="#signup" class="nav-cta">Start free trial</a>
@@ -505,7 +505,7 @@ footer {
 <section class="hero">
   <div class="hero-badge">Now with ElevenLabs Sarah voice</div>
   <h1>Never miss a<br/>customer call <em>again</em></h1>
-  <p class="hero-sub">CallMate answers every call, collects the lead, and texts you instantly — so you can focus on the job, not the phone.</p>
+  <p class="hero-sub">MissedCall answers every call, collects the lead, and texts you instantly — so you can focus on the job, not the phone.</p>
   <div class="hero-actions">
     <a href="#signup" class="btn-primary">Start your free trial</a>
     <a href="#how" class="btn-secondary">See how it works</a>
@@ -540,7 +540,7 @@ footer {
 <section class="section" id="how">
   <div class="section-tag">How it works</div>
   <h2 class="section-title">Up and running<br/>in 5 minutes</h2>
-  <p class="section-sub">No technical skills needed. Just forward your number and CallMate handles the rest.</p>
+  <p class="section-sub">No technical skills needed. Just forward your number and MissedCall handles the rest.</p>
 
   <div class="steps">
     <div class="step">
@@ -550,12 +550,12 @@ footer {
     </div>
     <div class="step">
       <div class="step-num">02</div>
-      <div class="step-title">Forward your existing number to CallMate</div>
+      <div class="step-title">Forward your existing number to MissedCall</div>
       <div class="step-desc">One simple setting on your phone. Your number stays the same — customers never notice a thing.</div>
     </div>
     <div class="step">
       <div class="step-num">03</div>
-      <div class="step-title">CallMate answers every call</div>
+      <div class="step-title">MissedCall answers every call</div>
       <div class="step-desc">Aria picks up in 2 seconds, has a real conversation, and collects the lead.</div>
     </div>
     <div class="step">
@@ -607,7 +607,7 @@ footer {
       <div class="phone-mockup">
         <div class="phone-top">
           <div class="phone-caller">Incoming call</div>
-          <div class="phone-sub">Forwarded to CallMate · Aria answering</div>
+          <div class="phone-sub">Forwarded to MissedCall · Aria answering</div>
           <div class="phone-wave">
             <div class="wave-bar"></div><div class="wave-bar"></div>
             <div class="wave-bar"></div><div class="wave-bar"></div>
@@ -701,37 +701,52 @@ footer {
       <div class="form-row">
         <div class="field">
           <label>First name</label>
-          <input type="text" placeholder="James" required/>
+          <input id="f-first" type="text" placeholder="James" required/>
         </div>
         <div class="field">
           <label>Last name</label>
-          <input type="text" placeholder="Smith" required/>
+          <input id="f-last" type="text" placeholder="Smith" required/>
         </div>
       </div>
 
       <div class="field">
         <label>Business name</label>
-        <input type="text" placeholder="Smith Plumbing Co." required/>
+        <input id="f-biz" type="text" placeholder="Smith Plumbing Co." required/>
       </div>
 
       <div class="field">
         <label>Your mobile number (for lead SMS alerts)</label>
-        <input type="tel" placeholder="+1 555 000 0000" required/>
+        <input id="f-mobile" type="tel" placeholder="+1 555 000 0000" required/>
       </div>
 
       <div class="field">
         <label>Email address</label>
-        <input type="email" placeholder="james@smithplumbing.com" required/>
+        <input id="f-email" type="email" placeholder="james@smithplumbing.com" required/>
       </div>
 
       <div class="field">
         <label>What does your business do?</label>
-        <input type="text" placeholder="Plumbing repairs and installations" required/>
+        <input id="f-industry" type="text" placeholder="Plumbing repairs and installations" required/>
+      </div>
+
+      <div class="field">
+        <label>Business hours</label>
+        <input id="f-hours" type="text" placeholder="Mon–Fri 8am–6pm, Sat 9am–1pm"/>
+      </div>
+
+      <div class="field">
+        <label>Business address / area you serve</label>
+        <input id="f-address" type="text" placeholder="12 Main Street, Austin TX / Greater Austin area"/>
+      </div>
+
+      <div class="field">
+        <label>Pricing (what should Aria tell callers?)</label>
+        <input id="f-pricing" type="text" placeholder="Call-outs from $150, free quotes on all jobs"/>
       </div>
 
       <div class="field">
         <label>Plan</label>
-        <select required>
+        <select id="f-plan" required>
           <option value="">Select a plan</option>
           <option value="starter">Starter — $97/mo (7 days free)</option>
           <option value="growth" selected>Growth — $197/mo (7 days free)</option>
@@ -739,35 +754,84 @@ footer {
         </select>
       </div>
 
-      <button type="submit" class="submit-btn">Start my free trial →</button>
+      <div id="form-error" style="display:none;color:#ff4444;font-size:13px;text-align:center;padding:8px;background:#fff0f0;border-radius:8px;"></div>
+
+      <button type="submit" class="submit-btn" id="submit-btn">Start my free trial →</button>
       <p class="form-note">No credit card required · Cancel anytime · Setup takes 5 minutes</p>
     </form>
 
     <div class="success-msg" id="success-msg">
       <div class="success-icon">🎉</div>
       <h3>You're in!</h3>
-      <p>Check your email for setup instructions. Aria will be answering your calls within minutes.<br/><br/>Welcome to CallMate.</p>
+      <p id="success-detail">Check your email for setup instructions. Aria will be answering your calls within minutes.<br/><br/>Welcome to MissedCall.io!</p>
     </div>
   </div>
 </section>
 
 <!-- FOOTER -->
 <footer>
-  <div class="footer-logo">Call<span>Mate</span></div>
-  <div>© 2025 CallMate. All rights reserved.</div>
-  <div>hello@callmate.ai</div>
+  <div class="footer-logo">Missed<span>Call</span></div>
+  <div>© 2026 MissedCall.io. All rights reserved.</div>
+  <div>hello@missedcall.io</div>
 </footer>
 
 <script>
-function handleSignup(e) {
+async function handleSignup(e) {
   e.preventDefault();
-  // In production this POSTs to your server which:
-  // 1. Creates Vapi assistant for this business
-  // 2. Assigns a phone number
-  // 3. Creates Stripe free trial subscription
-  // 4. Emails setup instructions
-  document.getElementById('signup-form').style.display = 'none';
-  document.getElementById('success-msg').style.display = 'block';
+
+  const btn = document.getElementById('submit-btn');
+  const errorBox = document.getElementById('form-error');
+  errorBox.style.display = 'none';
+  btn.textContent = 'Setting up your account...';
+  btn.disabled = true;
+
+  const body = {
+    firstName:    document.getElementById('f-first').value.trim(),
+    lastName:     document.getElementById('f-last').value.trim(),
+    businessName: document.getElementById('f-biz').value.trim(),
+    mobileNumber: document.getElementById('f-mobile').value.trim(),
+    email:        document.getElementById('f-email').value.trim(),
+    industry:     document.getElementById('f-industry').value.trim(),
+    bizHours:     document.getElementById('f-hours').value.trim(),
+    bizAddress:   document.getElementById('f-address').value.trim(),
+    bizPricing:   document.getElementById('f-pricing').value.trim(),
+    plan:         document.getElementById('f-plan').value,
+  };
+
+  try {
+    const res = await fetch('/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      errorBox.textContent = data.error || 'Something went wrong. Please try again.';
+      errorBox.style.display = 'block';
+      btn.textContent = 'Start my free trial →';
+      btn.disabled = false;
+      return;
+    }
+
+    // Success
+    document.getElementById('signup-form').style.display = 'none';
+    if (data.missedcallNumber) {
+      document.getElementById('success-detail').innerHTML =
+        `Your MissedCall number is <strong>${data.missedcallNumber}</strong>.<br/><br/>
+         Go to your phone settings and forward your calls to that number.<br/>
+         Aria will answer every call from this moment on.<br/><br/>
+         Welcome to MissedCall! 🎙️`;
+    }
+    document.getElementById('success-msg').style.display = 'block';
+
+  } catch (err) {
+    errorBox.textContent = 'Network error — please check your connection and try again.';
+    errorBox.style.display = 'block';
+    btn.textContent = 'Start my free trial →';
+    btn.disabled = false;
+  }
 }
 </script>
 </body>
