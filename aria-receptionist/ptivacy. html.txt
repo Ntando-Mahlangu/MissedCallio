@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Privacy Policy — MissedCall.io</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--black:#0a0a0a;--white:#fafaf8;--gray:#6b6b6b;--gray-light:#e8e6e1;--accent:#ff5c00;--surface:#f2f0eb}
+body{font-family:'DM Sans',sans-serif;background:var(--white);color:var(--black);line-height:1.7}
+nav{position:sticky;top:0;z-index:100;padding:18px 48px;display:flex;align-items:center;gap:16px;background:rgba(250,250,248,0.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--gray-light)}
+.logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;text-decoration:none;color:var(--black)}
+.logo span{color:var(--accent)}
+.back{margin-left:auto;font-size:14px;color:var(--gray);text-decoration:none}
+.back:hover{color:var(--black)}
+.container{max-width:760px;margin:0 auto;padding:64px 24px 120px}
+.page-title{font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-2px;margin-bottom:8px}
+.last-updated{font-size:13px;color:var(--gray);margin-bottom:48px}
+h2{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;margin:40px 0 12px;letter-spacing:-0.5px}
+p{font-size:16px;color:#333;margin-bottom:16px}
+ul{padding-left:20px;margin-bottom:16px}
+ul li{font-size:16px;color:#333;margin-bottom:8px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.divider{height:1px;background:var(--gray-light);margin:40px 0}
+footer{padding:40px 48px;border-top:1px solid var(--gray-light);display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--gray)}
+.footer-logo{font-family:'Syne',sans-serif;font-size:18px;font-weight:800}
+.footer-logo span{color:var(--accent)}
+@media(max-width:768px){nav{padding:16px 20px}.container{padding:40px 20px 80px}.page-title{font-size:32px}footer{flex-direction:column;gap:12px;text-align:center;padding:24px 20px}}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="logo">Missed<span>Call</span></a>
+  <a href="/" class="back">← Back to home</a>
+</nav>
+
+<div class="container">
+  <h1 class="page-title">Privacy Policy</h1>
+  <p class="last-updated">Last updated: June 2026</p>
+
+  <p>MissedCall.io ("we", "us", "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and protect your personal information when you use our service.</p>
+
+  <div class="divider"></div>
+
+  <h2>1. Information We Collect</h2>
+  <p>We collect the following types of information:</p>
+  <ul>
+    <li><strong>Account information:</strong> Your name, email address, mobile number, and business details provided during signup.</li>
+    <li><strong>Caller information:</strong> Names, phone numbers, and issues collected by Aria during inbound calls on behalf of your business.</li>
+    <li><strong>Usage data:</strong> Call logs, call duration, and system activity to help us improve our service.</li>
+    <li><strong>Payment information:</strong> Billing details processed securely by Paddle. We never store your card details.</li>
+  </ul>
+
+  <h2>2. How We Use Your Information</h2>
+  <ul>
+    <li>To provide, operate, and improve the MissedCall.io service.</li>
+    <li>To send you SMS notifications about leads captured during calls.</li>
+    <li>To send you transactional emails about your account.</li>
+    <li>To process payments through Paddle.</li>
+    <li>To respond to your support requests.</li>
+    <li>To comply with legal obligations.</li>
+  </ul>
+
+  <h2>3. How We Share Your Information</h2>
+  <p>We do not sell your personal information. We share data only with the third-party services required to operate MissedCall.io:</p>
+  <ul>
+    <li><strong>Vapi</strong> — to power phone call answering</li>
+    <li><strong>ElevenLabs</strong> — to generate Aria's voice</li>
+    <li><strong>Anthropic</strong> — to power Aria's AI conversation</li>
+    <li><strong>Twilio</strong> — to send SMS notifications</li>
+    <li><strong>Paddle</strong> — to process payments</li>
+    <li><strong>Supabase</strong> — to store your data securely</li>
+  </ul>
+  <p>Each provider handles data in accordance with their own privacy policies.</p>
+
+  <h2>4. Caller Data</h2>
+  <p>When Aria answers calls on behalf of your business, she collects the caller's name, phone number, and reason for calling. This information is:</p>
+  <ul>
+    <li>Stored securely in your MissedCall.io account.</li>
+    <li>Sent to you via SMS notification immediately after each call.</li>
+    <li>Accessible only to you as the account holder.</li>
+    <li>Never shared with other businesses or third parties.</li>
+  </ul>
+  <p>You are responsible for ensuring that your use of caller data complies with applicable privacy laws in your jurisdiction.</p>
+
+  <h2>5. Data Retention</h2>
+  <p>We retain your data for as long as your account is active. If you cancel your account, your data will be deleted within 30 days upon request. Call logs and lead data may be retained for up to 90 days for operational purposes.</p>
+
+  <h2>6. Data Security</h2>
+  <p>We take data security seriously. Your data is stored using Supabase, which uses industry-standard encryption. Access to your data is restricted to authorised systems and personnel only.</p>
+
+  <h2>7. Your Rights</h2>
+  <p>Depending on your location, you may have the right to:</p>
+  <ul>
+    <li>Access the personal data we hold about you.</li>
+    <li>Request correction of inaccurate data.</li>
+    <li>Request deletion of your data.</li>
+    <li>Object to or restrict our processing of your data.</li>
+    <li>Data portability — receive your data in a portable format.</li>
+  </ul>
+  <p>To exercise any of these rights, contact us at <a href="mailto:hello@missedcallio.online">hello@missedcallio.online</a>.</p>
+
+  <h2>8. Cookies</h2>
+  <p>Our website uses minimal cookies necessary for the site to function. We do not use tracking or advertising cookies.</p>
+
+  <h2>9. Children's Privacy</h2>
+  <p>MissedCall.io is not intended for use by anyone under the age of 18. We do not knowingly collect personal information from children.</p>
+
+  <h2>10. Changes to This Policy</h2>
+  <p>We may update this Privacy Policy from time to time. We will notify you of significant changes by email. Continued use of the service constitutes acceptance of the updated policy.</p>
+
+  <h2>11. Contact Us</h2>
+  <p>If you have any questions about this Privacy Policy, please contact us at:</p>
+  <p><a href="mailto:hello@missedcallio.online">hello@missedcallio.online</a></p>
+
+</div>
+
+<footer>
+  <div class="footer-logo">Missed<span>Call</span></div>
+  <div>© 2026 MissedCall.io. All rights reserved.</div>
+  <div style="display:flex;gap:20px"><a href="/terms.html" style="color:var(--gray)">Terms</a><a href="/refund.html" style="color:var(--gray)">Refunds</a><a href="/" style="color:var(--gray)">Home</a></div>
+</footer>
+
+</body>
+</html>
