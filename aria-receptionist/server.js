@@ -160,7 +160,48 @@ async function createVapiAssistant(business) {
 //  ASSISTANT CONFIG
 // =============================================================
 function buildAssistantConfig(business) {
-  const { business_name, id } = business;
+  const { business_name, id, plan } = business;
+  const canBook = plan === 'growth' || plan === 'pro';
+
+  const tools = [
+    {
+      type: 'function',
+      function: {
+        name:        'save_lead',
+        description: "Save the caller's details. Call this once you have confirmed their name, issue, and phone number.",
+        parameters: {
+          type:     'object',
+          required: ['name', 'issue', 'phone'],
+          properties: {
+            name:  { type: 'string', description: "Caller's full name" },
+            issue: { type: 'string', description: 'What they need help with or reason for calling' },
+            phone: { type: 'string', description: "Caller's callback phone number" }
+          }
+        }
+      }
+    }
+  ];
+
+  if (canBook) {
+    tools.push({
+      type: 'function',
+      function: {
+        name:        'book_appointment',
+        description: "Book an appointment for the caller. Use after confirming their name, phone number, service/package, and preferred date and time.",
+        parameters: {
+          type:     'object',
+          required: ['name', 'phone', 'service', 'appointment_time'],
+          properties: {
+            name:             { type: 'string', description: "Caller's full name" },
+            phone:            { type: 'string', description: "Caller's callback phone number" },
+            service:          { type: 'string', description: "The service or package they are booking" },
+            appointment_time: { type: 'string', description: "Appointment date and time in ISO 8601 format, e.g. 2025-07-15T14:00:00" },
+            notes:            { type: 'string', description: "Any special requests or notes from the caller" }
+          }
+        }
+      }
+    });
+  }
 
   return {
     name: `MissedCall — ${business_name}`,
@@ -208,22 +249,7 @@ function buildAssistantConfig(business) {
     // Webhook includes businessId so we know which client the call belongs to
     serverUrl: `${process.env.SERVER_URL}/vapi/webhook/${id}`,
 
-    tools: [{
-      type: 'function',
-      function: {
-        name:        'save_lead',
-        description: "Save the caller's details. Call this once you have confirmed their name, issue, and phone number.",
-        parameters: {
-          type:     'object',
-          required: ['name', 'issue', 'phone'],
-          properties: {
-            name:  { type: 'string', description: "Caller's full name" },
-            issue: { type: 'string', description: 'What they need help with or reason for calling' },
-            phone: { type: 'string', description: "Caller's callback phone number" }
-          }
-        }
-      }
-    }]
+    tools
   };
 }
 
@@ -236,8 +262,11 @@ function buildSystemPrompt(business) {
     industry,
     biz_hours,
     biz_address,
-    biz_pricing
+    biz_pricing,
+    plan
   } = business;
+
+  const canBook = plan === 'growth' || plan === 'pro';
 
   return `You are Aria, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
 
@@ -248,16 +277,18 @@ BUSINESS INFORMATION — answer these confidently when asked:
 - Payment: Cash and card accepted
 - Emergencies: Yes we handle them — leave your number and someone calls back within 15 minutes
 
-YOUR JOB: Have a natural, helpful conversation. Answer any question the caller has. Collect their name, issue, and callback number. Once you have all three, confirm and save them.
+YOUR JOB: Have a natural, helpful conversation. Answer any question the caller has. Collect their name, issue, and callback number. Once you have all three, confirm and save them.${canBook ? ` You can also book appointments directly for callers who want one.` : ''}
 
 CONVERSATION FLOW:
 - You already asked for their name in your first message. Once they give it, use it naturally.
 - Ask what you can help with today.
 - Listen, show empathy, answer any questions they have from the business info above.
-- Ask for their callback number.
+- Ask for their callback number.${canBook ? `
+- If they want to book an appointment: ask what service/package they need, then ask their preferred date and time. Confirm: "So that's [service] on [date] at [time] — shall I go ahead and book that?" Once they confirm, call book_appointment with their name, phone, service, and the appointment_time in ISO 8601 format (e.g. 2025-07-15T14:00:00). After booking say: "Perfect [name], you're all booked in for [service] on [date] at [time]. You'll get a confirmation text now, and a reminder the day before."
+- If they don't want an appointment: collect name, issue, phone and use save_lead as normal.` : `
 - Once you have all three: "Perfect [name], I've got you noted down. Someone from ${business_name} will call you back on [number] shortly."
-- Then call the save_lead tool with name, issue, and phone.
-- After saving, say a warm goodbye.
+- Then call the save_lead tool with name, issue, and phone.`}
+- After saving or booking, say a warm goodbye.
 
 HANDLING ANY QUESTION:
 - Pricing questions: give the answer from business info above. Never dodge it.
@@ -331,6 +362,8 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
 
           if (toolCall.function.name === 'save_lead') {
             result = await saveLead(businessId, callId, call, params);
+          } else if (toolCall.function.name === 'book_appointment') {
+            result = await saveAppointment(businessId, callId, call, params);
           }
         } catch (err) {
           console.error('Tool call error:', err.message);
@@ -418,6 +451,119 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
 
   console.log(`✅ Lead saved: ${name} | ${phone} | "${issue}"`);
   return { success: true };
+}
+
+// =============================================================
+//  SAVE APPOINTMENT + SMS confirmation to caller
+// =============================================================
+async function saveAppointment(businessId, callId, call, { name, phone, service, appointment_time, notes }) {
+  if (!name || !phone || !service || !appointment_time) {
+    console.warn('book_appointment called with missing fields');
+    return { success: false, error: 'Missing required fields' };
+  }
+
+  const { data: business, error: bizErr } = await supabase
+    .from('businesses')
+    .select('business_name, mobile_number, biz_address, plan')
+    .eq('id', businessId)
+    .single();
+
+  if (bizErr) console.error('Business lookup error:', bizErr.message);
+
+  const apptTime = new Date(appointment_time);
+
+  const { data: appt, error: apptErr } = await supabase
+    .from('appointments')
+    .insert({
+      business_id:      businessId,
+      call_id:          callId,
+      name,
+      phone,
+      service,
+      appointment_time: apptTime.toISOString(),
+      notes:            notes || null,
+      status:           'confirmed',
+      reminder_sent:    false
+    })
+    .select()
+    .single();
+
+  if (apptErr) {
+    console.error('Appointment insert error:', apptErr.message);
+    return { success: false, error: apptErr.message };
+  }
+
+  console.log(`📅 Appointment booked: ${name} | ${service} | ${formatApptTime(apptTime)}`);
+
+  if (business) {
+    await sendAppointmentConfirmation(business, appt);
+    // SMS to owner
+    await sendSMS(
+      business.mobile_number,
+      `📅 New appointment — ${business.business_name}\n` +
+      `Name:    ${name}\n` +
+      `Phone:   ${phone}\n` +
+      `Service: ${service}\n` +
+      `Time:    ${formatApptTime(apptTime)}\n` +
+      (notes ? `Notes:   ${notes}` : '')
+    );
+  }
+
+  return { success: true, appointment_id: appt.id };
+}
+
+// =============================================================
+//  APPOINTMENT CONFIRMATION SMS → caller
+// =============================================================
+async function sendAppointmentConfirmation(business, appt) {
+  if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
+
+  const time    = formatApptTime(new Date(appt.appointment_time));
+  const address = business.biz_address || 'our location';
+
+  const body =
+    `Hi ${appt.name}! Your appointment at ${business.business_name} is confirmed.\n` +
+    `📋 Service: ${appt.service}\n` +
+    `📅 When:    ${time}\n` +
+    `📍 Where:   ${address}\n` +
+    `We'll send you a reminder the day before. See you then!`;
+
+  await sendSMS(appt.phone, body);
+}
+
+// =============================================================
+//  APPOINTMENT REMINDER SMS → caller (sent ~24h before)
+// =============================================================
+async function sendAppointmentReminder(business, appt) {
+  if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
+
+  const time    = formatApptTime(new Date(appt.appointment_time));
+  const address = business.biz_address || 'our location';
+
+  const body =
+    `Reminder: Your appointment at ${business.business_name} is tomorrow!\n` +
+    `📋 Service: ${appt.service}\n` +
+    `📅 When:    ${time}\n` +
+    `📍 Where:   ${address}\n` +
+    `Reply CANCEL to cancel or call us if you need to reschedule.`;
+
+  await sendSMS(appt.phone, body);
+  console.log(`🔔 Reminder sent to ${appt.phone} for appt #${appt.id}`);
+}
+
+// =============================================================
+//  FORMAT APPOINTMENT TIME
+// =============================================================
+function formatApptTime(date) {
+  return date.toLocaleString('en-US', {
+    weekday: 'short',
+    month:   'short',
+    day:     'numeric',
+    year:    'numeric',
+    hour:    'numeric',
+    minute:  '2-digit',
+    hour12:  true
+  });
 }
 
 // =============================================================
@@ -586,7 +732,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/dashboard', authMiddleware, async (req, res) => {
   const { businessId } = req;
 
-  const [bizResult, leadsResult, callsResult] = await Promise.all([
+  const [bizResult, leadsResult, callsResult, apptsResult] = await Promise.all([
     supabase.from('businesses')
       .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, created_at')
       .eq('id', businessId).single(),
@@ -594,12 +740,15 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
       .eq('business_id', businessId).order('received_at', { ascending: false }).limit(200),
     supabase.from('calls').select('*')
       .eq('business_id', businessId).order('started_at', { ascending: false }).limit(200),
+    supabase.from('appointments').select('*')
+      .eq('business_id', businessId).order('appointment_time', { ascending: false }).limit(200),
   ]);
 
   if (bizResult.error) return res.status(500).json({ error: bizResult.error.message });
 
   const leads = leadsResult.data || [];
   const calls = callsResult.data || [];
+  const appointments = apptsResult.data || [];
 
   // Detect returning callers — phones seen more than once
   const phoneCounts = {};
@@ -625,7 +774,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
       : 0,
   };
 
-  res.json({ business: bizResult.data, leads: leadsWithReturning, calls, stats });
+  res.json({ business: bizResult.data, leads: leadsWithReturning, calls, appointments, stats });
 });
 
 // =============================================================
@@ -673,6 +822,46 @@ app.get('/health', (_req, res) => res.json({
   email:    !!process.env.RESEND_API_KEY,
   uptime:   Math.round(process.uptime())
 }));
+
+// =============================================================
+//  24-HOUR APPOINTMENT REMINDER POLLER (runs every 5 minutes)
+// =============================================================
+async function runReminderPoller() {
+  try {
+    const now      = new Date();
+    const from     = new Date(now.getTime() + 23 * 60 * 60 * 1000).toISOString();
+    const to       = new Date(now.getTime() + 25 * 60 * 60 * 1000).toISOString();
+
+    const { data: appts, error } = await supabase
+      .from('appointments')
+      .select('*, businesses(business_name, mobile_number, biz_address, plan)')
+      .eq('reminder_sent', false)
+      .eq('status', 'confirmed')
+      .gte('appointment_time', from)
+      .lte('appointment_time', to);
+
+    if (error) { console.error('Reminder poller error:', error.message); return; }
+    if (!appts || appts.length === 0) return;
+
+    console.log(`🔔 Reminder poller: ${appts.length} reminder(s) to send`);
+
+    for (const appt of appts) {
+      const business = appt.businesses;
+      if (!business) continue;
+
+      await sendAppointmentReminder(business, appt);
+
+      await supabase
+        .from('appointments')
+        .update({ reminder_sent: true })
+        .eq('id', appt.id);
+    }
+  } catch (err) {
+    console.error('Reminder poller exception:', err.message);
+  }
+}
+
+setInterval(runReminderPoller, 5 * 60 * 1000);
 
 // =============================================================
 //  START

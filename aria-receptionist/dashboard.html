@@ -214,12 +214,18 @@ tbody tr:last-child td{border-bottom:none}
           <div class="stat-value" id="s-duration">—</div>
           <div class="stat-sub">seconds per call</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-label">Appointments</div>
+          <div class="stat-value" id="s-appts" style="color:#7c3aed">—</div>
+          <div class="stat-sub" id="s-appts-upcoming"></div>
+        </div>
       </div>
 
       <!-- TABS -->
       <div class="tabs">
         <button class="tab-btn active" onclick="showTab('leads',this)">Missed Calls &amp; Leads</button>
         <button class="tab-btn" onclick="showTab('calls',this)">Call Log</button>
+        <button class="tab-btn" id="tab-btn-appointments" onclick="showTab('appointments',this)">Appointments</button>
         <button class="tab-btn" onclick="showTab('info',this)">Account</button>
       </div>
 
@@ -273,6 +279,38 @@ tbody tr:last-child td{border-bottom:none}
               </tr>
             </thead>
             <tbody id="calls-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- APPOINTMENTS TAB -->
+      <div id="tab-appointments" style="display:none">
+        <div class="section-header">
+          <span class="section-title">Appointments</span>
+          <span class="section-count" id="appts-count"></span>
+        </div>
+        <div class="filter-row">
+          <input class="filter-input" id="appt-search" placeholder="Search name, phone, or service…" oninput="renderAppointments()"/>
+          <select class="filter-select" id="appt-filter" onchange="renderAppointments()">
+            <option value="all">All</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="past">Past</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Service / Package</th>
+                <th>Date &amp; Time</th>
+                <th>Status</th>
+                <th>Reminder</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="appts-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -397,8 +435,20 @@ function renderAll() {
   document.getElementById('s-returning').textContent = stats.returningCallers;
   document.getElementById('s-duration').textContent = stats.avgDuration;
 
+  const appts = DATA.appointments || [];
+  const now = Date.now();
+  const upcoming = appts.filter(a => new Date(a.appointment_time) > now);
+  document.getElementById('s-appts').textContent = appts.length;
+  document.getElementById('s-appts-upcoming').textContent = `${upcoming.length} upcoming`;
+
+  // Only show appointments tab for growth/pro plans
+  const plan = (DATA.business.plan || 'growth').toLowerCase();
+  const canBook = plan === 'growth' || plan === 'pro';
+  document.getElementById('tab-btn-appointments').style.display = canBook ? '' : 'none';
+
   renderLeads();
   renderCalls();
+  renderAppointments();
   renderInfo();
 }
 
@@ -471,6 +521,52 @@ function renderCalls() {
   }).join('');
 }
 
+function renderAppointments() {
+  const search = document.getElementById('appt-search').value.toLowerCase();
+  const filter = document.getElementById('appt-filter').value;
+  const now = Date.now();
+
+  let appts = DATA.appointments || [];
+  if (filter === 'upcoming') appts = appts.filter(a => new Date(a.appointment_time) > now);
+  if (filter === 'past')     appts = appts.filter(a => new Date(a.appointment_time) <= now);
+  if (search) appts = appts.filter(a =>
+    (a.name||'').toLowerCase().includes(search) ||
+    (a.phone||'').includes(search) ||
+    (a.service||'').toLowerCase().includes(search)
+  );
+
+  document.getElementById('appts-count').textContent = `${appts.length} appointment${appts.length !== 1 ? 's' : ''}`;
+
+  const tbody = document.getElementById('appts-tbody');
+  if (!appts.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">No appointments found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = appts.map(a => {
+    const isUpcoming = new Date(a.appointment_time) > now;
+    const statusTag = a.status === 'confirmed'
+      ? (isUpcoming
+          ? `<span class="tag tag-completed">Confirmed</span>`
+          : `<span class="tag" style="background:#f3f4f6;color:#6b7280">Completed</span>`)
+      : `<span class="tag tag-missed">${esc(a.status)}</span>`;
+    const reminderTag = a.reminder_sent
+      ? `<span class="tag" style="background:var(--green-bg);color:#166534">Sent</span>`
+      : (isUpcoming
+          ? `<span class="tag" style="background:#fef3c7;color:#92400e">Pending</span>`
+          : `<span style="color:var(--gray-light);font-size:12px">—</span>`);
+    return `<tr>
+      <td><strong>${esc(a.name || '—')}</strong></td>
+      <td><a class="phone-link" href="tel:${esc(a.phone||'')}">${esc(a.phone || '—')}</a></td>
+      <td>${esc(a.service || '—')}</td>
+      <td style="white-space:nowrap;font-weight:500">${fmtApptTime(a.appointment_time)}</td>
+      <td>${statusTag}</td>
+      <td>${reminderTag}</td>
+      <td style="color:var(--gray);font-size:13px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.notes || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
 function renderInfo() {
   const b = DATA.business;
 
@@ -493,7 +589,7 @@ function renderInfo() {
 
 // ── TABS ──
 function showTab(name, btn) {
-  ['leads','calls','info'].forEach(t => {
+  ['leads','calls','appointments','info'].forEach(t => {
     document.getElementById(`tab-${t}`).style.display = t === name ? 'block' : 'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -508,6 +604,10 @@ function fmtTime(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
   return d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', hour12:true });
+}
+function fmtApptTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', hour12:true });
 }
 function fmtDate(iso) {
   if (!iso) return '—';

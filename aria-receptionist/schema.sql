@@ -42,6 +42,22 @@ create table if not exists calls (
   created_at       timestamptz default now()
 );
 
-create index if not exists businesses_email_idx  on businesses (email);
-create index if not exists leads_business_idx    on leads (business_id, received_at desc);
-create index if not exists calls_business_idx    on calls (business_id, started_at desc);
+create table if not exists appointments (
+  id               bigint generated always as identity primary key,
+  business_id      uuid references businesses(id) on delete cascade,
+  call_id          text,
+  name             text not null,
+  phone            text not null,
+  service          text,
+  appointment_time timestamptz not null,
+  notes            text,
+  status           text default 'confirmed',
+  reminder_sent    boolean default false,
+  created_at       timestamptz default now()
+);
+
+create index if not exists businesses_email_idx      on businesses (email);
+create index if not exists leads_business_idx        on leads (business_id, received_at desc);
+create index if not exists calls_business_idx        on calls (business_id, started_at desc);
+create index if not exists appointments_business_idx on appointments (business_id, appointment_time desc);
+create index if not exists appointments_reminder_idx on appointments (appointment_time, reminder_sent) where reminder_sent = false;
