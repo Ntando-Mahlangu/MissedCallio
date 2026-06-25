@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MissedCall — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --black:#0a0a0a;--white:#fafaf8;--gray:#6b6b6b;--gray-light:#e8e6e1;
+  --accent:#ff5c00;--accent-light:#fff3ed;--green:#00c853;--green-bg:#e8faf0;
+  --surface:#f2f0eb;--surface2:#ebe9e4;--radius:14px;--shadow:0 2px 12px rgba(0,0,0,.07);
+}
+html{scroll-behavior:smooth}
+body{font-family:'DM Sans',sans-serif;background:var(--surface);color:var(--black);min-height:100vh}
+
+/* ── LOGIN ── */
+#login-screen{
+  display:flex;align-items:center;justify-content:center;min-height:100vh;
+  background:var(--black);
+}
+.login-card{
+  background:var(--white);border-radius:20px;padding:48px 40px;width:100%;max-width:420px;
+  box-shadow:0 24px 60px rgba(0,0,0,.4);
+}
+.login-logo{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:8px}
+.login-logo span{color:var(--accent)}
+.login-sub{color:var(--gray);font-size:14px;margin-bottom:32px}
+.login-label{font-size:13px;font-weight:500;margin-bottom:6px;display:block}
+.login-input{
+  width:100%;border:1.5px solid var(--gray-light);border-radius:10px;
+  padding:12px 14px;font-size:15px;font-family:'DM Sans',sans-serif;
+  outline:none;transition:border-color .2s;background:var(--white);
+}
+.login-input:focus{border-color:var(--accent)}
+.login-btn{
+  width:100%;margin-top:16px;background:var(--black);color:var(--white);
+  border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:500;
+  font-family:'DM Sans',sans-serif;cursor:pointer;transition:background .2s;
+}
+.login-btn:hover{background:var(--accent)}
+.login-btn:disabled{opacity:.5;cursor:not-allowed}
+.login-error{color:#e53e3e;font-size:13px;margin-top:10px;display:none}
+.login-info{color:var(--gray);font-size:13px;margin-top:10px;display:none}
+
+/* ── APP SHELL ── */
+#app{display:none;min-height:100vh}
+
+header{
+  background:var(--black);padding:0 32px;height:60px;
+  display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50;
+}
+.h-logo{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--white)}
+.h-logo span{color:var(--accent)}
+.h-biz{font-size:13px;color:#888;margin-left:4px}
+.h-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.plan-badge{
+  font-size:11px;font-weight:600;padding:4px 10px;border-radius:99px;
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.plan-trial{background:#fef3c7;color:#92400e}
+.plan-active{background:var(--green-bg);color:#166534}
+.plan-past_due{background:#fee2e2;color:#991b1b}
+.logout-btn{
+  font-size:13px;color:#666;cursor:pointer;background:none;border:none;
+  font-family:'DM Sans',sans-serif;padding:6px 12px;border-radius:8px;transition:background .2s;
+}
+.logout-btn:hover{background:rgba(255,255,255,.1);color:var(--white)}
+
+main{max-width:1200px;margin:0 auto;padding:32px 24px}
+
+/* ── STATS ── */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;margin-bottom:32px}
+.stat-card{
+  background:var(--white);border-radius:var(--radius);padding:20px 22px;
+  box-shadow:var(--shadow);
+}
+.stat-label{font-size:12px;color:var(--gray);font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.stat-value{font-family:'Syne',sans-serif;font-size:32px;font-weight:700;line-height:1}
+.stat-value.accent{color:var(--accent)}
+.stat-value.green{color:var(--green)}
+.stat-sub{font-size:12px;color:var(--gray);margin-top:4px}
+
+/* ── SECTION ── */
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.section-title{font-family:'Syne',sans-serif;font-size:17px;font-weight:700}
+.section-count{font-size:13px;color:var(--gray);background:var(--surface2);padding:3px 10px;border-radius:99px}
+
+.filter-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.filter-input{
+  border:1.5px solid var(--gray-light);border-radius:10px;padding:8px 12px;
+  font-size:13px;font-family:'DM Sans',sans-serif;outline:none;background:var(--white);
+  transition:border-color .2s;min-width:180px;
+}
+.filter-input:focus{border-color:var(--accent)}
+.filter-select{
+  border:1.5px solid var(--gray-light);border-radius:10px;padding:8px 12px;
+  font-size:13px;font-family:'DM Sans',sans-serif;outline:none;background:var(--white);
+  cursor:pointer;
+}
+
+/* ── TABLE ── */
+.table-wrap{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-bottom:32px}
+table{width:100%;border-collapse:collapse}
+thead th{
+  background:var(--surface);font-size:11px;font-weight:600;color:var(--gray);
+  text-transform:uppercase;letter-spacing:.5px;padding:12px 16px;text-align:left;
+  border-bottom:1px solid var(--gray-light);white-space:nowrap;
+}
+tbody tr{transition:background .15s}
+tbody tr:hover{background:var(--surface)}
+tbody td{padding:13px 16px;font-size:14px;border-bottom:1px solid #f0eeea;vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+.empty-row td{text-align:center;color:var(--gray);padding:40px;font-size:14px}
+
+/* ── TAGS ── */
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap}
+.tag-returning{background:#ede9fe;color:#6d28d9}
+.tag-new{background:#dbeafe;color:#1d4ed8}
+.tag-completed{background:var(--green-bg);color:#166534}
+.tag-missed{background:#fee2e2;color:#991b1b}
+
+.phone-link{color:var(--accent);text-decoration:none;font-weight:500}
+.phone-link:hover{text-decoration:underline}
+.rec-link{color:var(--accent);text-decoration:none;font-size:12px;display:inline-flex;align-items:center;gap:4px}
+.rec-link:hover{text-decoration:underline}
+
+.issue-text{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:4px;background:var(--surface2);border-radius:10px;padding:4px;width:fit-content;margin-bottom:24px}
+.tab-btn{
+  padding:7px 18px;border-radius:7px;font-size:13px;font-weight:500;
+  border:none;background:none;cursor:pointer;transition:all .2s;color:var(--gray);
+  font-family:'DM Sans',sans-serif;
+}
+.tab-btn.active{background:var(--white);color:var(--black);box-shadow:0 1px 4px rgba(0,0,0,.1)}
+
+/* ── INFO PANEL ── */
+.info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-bottom:32px}
+.info-card{background:var(--white);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+.info-card-title{font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.info-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--surface)}
+.info-row:last-child{border-bottom:none}
+.info-key{font-size:13px;color:var(--gray)}
+.info-val{font-size:13px;font-weight:500;text-align:right;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── LOADING ── */
+.spinner{width:36px;height:36px;border:3px solid var(--gray-light);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:60px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading{text-align:center;padding:60px}
+
+/* ── RESPONSIVE ── */
+@media(max-width:700px){
+  main{padding:20px 16px}
+  .stats-grid{grid-template-columns:1fr 1fr}
+  header{padding:0 16px}
+  table{font-size:13px}
+  thead th,tbody td{padding:10px 12px}
+  .login-card{padding:36px 24px;margin:16px}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">Missed<span>Call</span></div>
+    <p class="login-sub">Sign in to your dashboard</p>
+    <label class="login-label" for="login-email">Email address</label>
+    <input class="login-input" id="login-email" type="email" placeholder="you@example.com" autocomplete="email"/>
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Access Dashboard</button>
+    <p class="login-error" id="login-error"></p>
+    <p class="login-info" id="login-info"></p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header>
+    <div class="h-logo">Missed<span>Call</span></div>
+    <div class="h-biz" id="h-biz-name"></div>
+    <div class="h-right">
+      <span class="plan-badge" id="plan-badge"></span>
+      <button class="logout-btn" onclick="logout()">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="loading"><div class="spinner"></div></div>
+    <div id="content" style="display:none">
+
+      <!-- STATS -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Leads</div>
+          <div class="stat-value accent" id="s-leads">—</div>
+          <div class="stat-sub" id="s-leads-today"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Calls</div>
+          <div class="stat-value" id="s-calls">—</div>
+          <div class="stat-sub" id="s-calls-today"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Returning Callers</div>
+          <div class="stat-value green" id="s-returning">—</div>
+          <div class="stat-sub">called more than once</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Call Duration</div>
+          <div class="stat-value" id="s-duration">—</div>
+          <div class="stat-sub">seconds per call</div>
+        </div>
+      </div>
+
+      <!-- TABS -->
+      <div class="tabs">
+        <button class="tab-btn active" onclick="showTab('leads',this)">Missed Calls &amp; Leads</button>
+        <button class="tab-btn" onclick="showTab('calls',this)">Call Log</button>
+        <button class="tab-btn" onclick="showTab('info',this)">Account</button>
+      </div>
+
+      <!-- LEADS TAB -->
+      <div id="tab-leads">
+        <div class="section-header">
+          <span class="section-title">Leads Captured</span>
+          <span class="section-count" id="leads-count"></span>
+        </div>
+        <div class="filter-row">
+          <input class="filter-input" id="lead-search" placeholder="Search name, phone, or issue…" oninput="renderLeads()"/>
+          <select class="filter-select" id="lead-filter" onchange="renderLeads()">
+            <option value="all">All callers</option>
+            <option value="returning">Returning callers</option>
+            <option value="new">New callers</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Caller</th>
+                <th>Phone</th>
+                <th>Issue / Reason</th>
+                <th>Status</th>
+                <th>Time</th>
+                <th>Recording</th>
+              </tr>
+            </thead>
+            <tbody id="leads-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- CALLS TAB -->
+      <div id="tab-calls" style="display:none">
+        <div class="section-header">
+          <span class="section-title">Call Log</span>
+          <span class="section-count" id="calls-count"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Caller Number</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Started</th>
+                <th>Ended</th>
+                <th>Recording</th>
+              </tr>
+            </thead>
+            <tbody id="calls-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ACCOUNT TAB -->
+      <div id="tab-info" style="display:none">
+        <div class="section-title" style="margin-bottom:16px">Account Details</div>
+        <div class="info-grid">
+          <div class="info-card">
+            <div class="info-card-title">Business Info</div>
+            <div id="biz-info-rows"></div>
+          </div>
+          <div class="info-card">
+            <div class="info-card-title">Subscription</div>
+            <div id="sub-info-rows"></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<script>
+let DATA = null;
+
+// ── AUTH ──
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  const infoEl = document.getElementById('login-info');
+
+  errEl.style.display = 'none';
+  infoEl.style.display = 'none';
+  if (!email || !email.includes('@')) {
+    errEl.textContent = 'Please enter a valid email address.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const d = await r.json();
+    if (!d.token) {
+      infoEl.textContent = 'No account found for that email. Please check the address or sign up.';
+      infoEl.style.display = 'block';
+    } else {
+      localStorage.setItem('mc_token', d.token);
+      localStorage.setItem('mc_biz', JSON.stringify(d.business));
+      showApp();
+    }
+  } catch {
+    errEl.textContent = 'Connection error. Please try again.';
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Access Dashboard';
+}
+
+document.getElementById('login-email').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+function logout() {
+  localStorage.removeItem('mc_token');
+  localStorage.removeItem('mc_biz');
+  location.reload();
+}
+
+// ── INIT ──
+async function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  const biz = JSON.parse(localStorage.getItem('mc_biz') || '{}');
+  document.getElementById('h-biz-name').textContent = biz.business_name || '';
+  setPlanBadge(biz.status || 'trial');
+
+  await loadDashboard();
+}
+
+async function loadDashboard() {
+  const token = localStorage.getItem('mc_token');
+  try {
+    const r = await fetch('/api/dashboard', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (r.status === 401) { logout(); return; }
+    DATA = await r.json();
+    renderAll();
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  } catch {
+    document.getElementById('loading').innerHTML = '<p style="color:var(--gray)">Failed to load data. Please refresh.</p>';
+  }
+}
+
+function setPlanBadge(status) {
+  const el = document.getElementById('plan-badge');
+  const labels = { trial: 'Trial', active: 'Active', past_due: 'Past Due', cancelled: 'Cancelled' };
+  el.textContent = labels[status] || status;
+  el.className = `plan-badge plan-${status}`;
+}
+
+// ── RENDER ──
+function renderAll() {
+  const { stats, business } = DATA;
+  document.getElementById('h-biz-name').textContent = business.business_name;
+  setPlanBadge(business.status);
+
+  document.getElementById('s-leads').textContent = stats.totalLeads;
+  document.getElementById('s-leads-today').textContent = `${stats.leadsToday} today`;
+  document.getElementById('s-calls').textContent = stats.totalCalls;
+  document.getElementById('s-calls-today').textContent = `${stats.callsToday} today`;
+  document.getElementById('s-returning').textContent = stats.returningCallers;
+  document.getElementById('s-duration').textContent = stats.avgDuration;
+
+  renderLeads();
+  renderCalls();
+  renderInfo();
+}
+
+function renderLeads() {
+  const search = document.getElementById('lead-search').value.toLowerCase();
+  const filter = document.getElementById('lead-filter').value;
+
+  let leads = DATA.leads || [];
+  if (filter === 'returning') leads = leads.filter(l => l.returning);
+  if (filter === 'new') leads = leads.filter(l => !l.returning);
+  if (search) leads = leads.filter(l =>
+    (l.name||'').toLowerCase().includes(search) ||
+    (l.phone||'').includes(search) ||
+    (l.issue||'').toLowerCase().includes(search) ||
+    (l.caller_number||'').includes(search)
+  );
+
+  document.getElementById('leads-count').textContent = `${leads.length} result${leads.length !== 1 ? 's' : ''}`;
+
+  const tbody = document.getElementById('leads-tbody');
+  if (!leads.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No leads found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = leads.map(l => {
+    const tag = l.returning
+      ? `<span class="tag tag-returning">↩ Returning</span>`
+      : `<span class="tag tag-new">★ New</span>`;
+    const recLink = l.recording_url
+      ? `<a class="rec-link" href="${esc(l.recording_url)}" target="_blank">▶ Play</a>`
+      : `<span style="color:var(--gray-light);font-size:12px">—</span>`;
+    return `<tr>
+      <td><strong>${esc(l.name || '—')}</strong></td>
+      <td><a class="phone-link" href="tel:${esc(l.phone||'')}">${esc(l.phone || '—')}</a></td>
+      <td><span class="issue-text" title="${esc(l.issue||'')}">${esc(l.issue || '—')}</span></td>
+      <td>${tag}</td>
+      <td style="white-space:nowrap;color:var(--gray);font-size:13px">${fmtTime(l.received_at)}</td>
+      <td>${recLink}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCalls() {
+  const calls = DATA.calls || [];
+  document.getElementById('calls-count').textContent = `${calls.length} call${calls.length !== 1 ? 's' : ''}`;
+
+  const tbody = document.getElementById('calls-tbody');
+  if (!calls.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No calls recorded yet.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = calls.map(c => {
+    const statusTag = c.status === 'completed'
+      ? `<span class="tag tag-completed">Completed</span>`
+      : `<span class="tag tag-missed">In Progress</span>`;
+    const dur = c.duration_seconds != null ? `${c.duration_seconds}s` : '—';
+    const recLink = c.recording_url
+      ? `<a class="rec-link" href="${esc(c.recording_url)}" target="_blank">▶ Play</a>`
+      : `<span style="color:var(--gray-light);font-size:12px">—</span>`;
+    return `<tr>
+      <td><a class="phone-link" href="tel:${esc(c.caller_number||'')}">${esc(c.caller_number || 'Unknown')}</a></td>
+      <td>${statusTag}</td>
+      <td style="font-weight:500">${dur}</td>
+      <td style="white-space:nowrap;color:var(--gray);font-size:13px">${fmtTime(c.started_at)}</td>
+      <td style="white-space:nowrap;color:var(--gray);font-size:13px">${fmtTime(c.ended_at)}</td>
+      <td>${recLink}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderInfo() {
+  const b = DATA.business;
+
+  document.getElementById('biz-info-rows').innerHTML = [
+    ['Owner', b.name],
+    ['Business', b.business_name],
+    ['Email', b.email],
+    ['MissedCall Number', b.missedcall_number || 'Pending setup'],
+    ['Alerts sent to', b.mobile_number],
+    ['Member since', fmtDate(b.created_at)],
+  ].map(([k, v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(v||'—')}</span></div>`).join('');
+
+  const trialEnd = b.trial_ends_at ? fmtDate(b.trial_ends_at) : '—';
+  document.getElementById('sub-info-rows').innerHTML = [
+    ['Plan', (b.plan||'growth').charAt(0).toUpperCase()+(b.plan||'growth').slice(1)],
+    ['Status', (b.status||'trial').replace('_',' ')],
+    ['Trial ends', trialEnd],
+  ].map(([k, v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(v||'—')}</span></div>`).join('');
+}
+
+// ── TABS ──
+function showTab(name, btn) {
+  ['leads','calls','info'].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === name ? 'block' : 'none';
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── HELPERS ──
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', hour12:true });
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+}
+
+// ── START ──
+(function init() {
+  const token = localStorage.getItem('mc_token');
+  if (token) {
+    showApp();
+  }
+})();
+</script>
+</body>
+</html>

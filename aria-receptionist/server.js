@@ -6,6 +6,7 @@
 
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -30,6 +31,7 @@ app.use((req, res, next) => {
 // Serve website
 app.use(express.static(__dirname));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/dashboard', (_req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
 
 // Guard against missing keys
 if (!process.env.SUPABASE_URL)      throw new Error('SUPABASE_URL is required.');
@@ -526,9 +528,118 @@ async function sendWelcomeEmail(business, phoneNumber) {
 }
 
 // =============================================================
-//  ADMIN ENDPOINTS
+//  DASHBOARD AUTH
 // =============================================================
-app.get('/admin/businesses', async (_req, res) => {
+const TOKEN_SECRET = process.env.TOKEN_SECRET || 'missedcall-dashboard-secret';
+
+function signToken(businessId) {
+  const payload = `${businessId}:${Date.now()}`;
+  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex');
+  return Buffer.from(`${payload}:${sig}`).toString('base64url');
+}
+
+function verifyToken(token) {
+  try {
+    const decoded = Buffer.from(token, 'base64url').toString();
+    const parts = decoded.split(':');
+    if (parts.length !== 3) return null;
+    const [businessId, ts, sig] = parts;
+    // tokens valid for 30 days
+    if (Date.now() - Number(ts) > 30 * 24 * 60 * 60 * 1000) return null;
+    const expected = crypto.createHmac('sha256', TOKEN_SECRET).update(`${businessId}:${ts}`).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+    return businessId;
+  } catch {
+    return null;
+  }
+}
+
+function authMiddleware(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+  const businessId = token ? verifyToken(token) : null;
+  if (!businessId) return res.status(401).json({ error: 'Unauthorized' });
+  req.businessId = businessId;
+  next();
+}
+
+// POST /api/auth/login — email magic-link style login
+app.post('/api/auth/login', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+  const { data: business, error } = await supabase
+    .from('businesses')
+    .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number')
+    .eq('email', email.toLowerCase().trim())
+    .single();
+
+  if (error || !business) {
+    // Return generic message to avoid account enumeration
+    return res.json({ success: true, message: 'If that email is registered, a link has been sent.' });
+  }
+
+  const token = signToken(business.id);
+  res.json({ success: true, token, business });
+});
+
+// GET /api/dashboard — authenticated data
+app.get('/api/dashboard', authMiddleware, async (req, res) => {
+  const { businessId } = req;
+
+  const [bizResult, leadsResult, callsResult] = await Promise.all([
+    supabase.from('businesses')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, created_at')
+      .eq('id', businessId).single(),
+    supabase.from('leads').select('*')
+      .eq('business_id', businessId).order('received_at', { ascending: false }).limit(200),
+    supabase.from('calls').select('*')
+      .eq('business_id', businessId).order('started_at', { ascending: false }).limit(200),
+  ]);
+
+  if (bizResult.error) return res.status(500).json({ error: bizResult.error.message });
+
+  const leads = leadsResult.data || [];
+  const calls = callsResult.data || [];
+
+  // Detect returning callers — phones seen more than once
+  const phoneCounts = {};
+  for (const l of leads) {
+    if (l.phone) phoneCounts[l.phone] = (phoneCounts[l.phone] || 0) + 1;
+  }
+
+  const leadsWithReturning = leads.map(l => ({
+    ...l,
+    returning: l.phone && phoneCounts[l.phone] > 1
+  }));
+
+  // Stats
+  const today = new Date().toISOString().slice(0, 10);
+  const stats = {
+    totalLeads:      leads.length,
+    totalCalls:      calls.length,
+    leadsToday:      leads.filter(l => l.received_at?.startsWith(today)).length,
+    callsToday:      calls.filter(c => c.started_at?.startsWith(today)).length,
+    returningCallers: Object.values(phoneCounts).filter(n => n > 1).length,
+    avgDuration:     calls.length
+      ? Math.round(calls.reduce((s, c) => s + (c.duration_seconds || 0), 0) / calls.length)
+      : 0,
+  };
+
+  res.json({ business: bizResult.data, leads: leadsWithReturning, calls, stats });
+});
+
+// =============================================================
+//  ADMIN ENDPOINTS (protected by ADMIN_KEY)
+// =============================================================
+function adminAuth(req, res, next) {
+  const key = req.headers['x-admin-key'] || req.query.adminKey;
+  if (!key || key !== process.env.ADMIN_KEY) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+}
+
+app.get('/admin/businesses', adminAuth, async (_req, res) => {
   const { data, error } = await supabase
     .from('businesses').select('*')
     .order('created_at', { ascending: false });
@@ -536,7 +647,7 @@ app.get('/admin/businesses', async (_req, res) => {
   res.json({ total: data.length, businesses: data });
 });
 
-app.get('/admin/leads/:businessId', async (req, res) => {
+app.get('/admin/leads/:businessId', adminAuth, async (req, res) => {
   const { data, error } = await supabase
     .from('leads').select('*')
     .eq('business_id', req.params.businessId)
@@ -545,7 +656,7 @@ app.get('/admin/leads/:businessId', async (req, res) => {
   res.json({ total: data.length, leads: data });
 });
 
-app.get('/admin/calls/:businessId', async (req, res) => {
+app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
   const { data, error } = await supabase
     .from('calls').select('*')
     .eq('business_id', req.params.businessId)
