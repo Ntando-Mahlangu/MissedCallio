@@ -56,7 +56,17 @@ create table if not exists appointments (
   created_at       timestamptz default now()
 );
 
-create index if not exists businesses_email_idx      on businesses (email);
+create table if not exists auth_otps (
+  id         bigint generated always as identity primary key,
+  email      text not null,
+  otp        text not null,
+  expires_at timestamptz not null,
+  used       boolean default false,
+  created_at timestamptz default now()
+);
+
+create index if not exists auth_otps_lookup_idx on auth_otps (email, expires_at) where used = false;
+create index if not exists businesses_email_idx on businesses (email);
 create index if not exists leads_business_idx        on leads (business_id, received_at desc);
 create index if not exists calls_business_idx        on calls (business_id, started_at desc);
 create index if not exists appointments_business_idx on appointments (business_id, appointment_time desc);

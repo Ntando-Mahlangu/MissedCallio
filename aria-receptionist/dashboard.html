@@ -168,12 +168,27 @@ tbody tr:last-child td{border-bottom:none}
 <div id="login-screen">
   <div class="login-card">
     <div class="login-logo">Missed<span>Call</span></div>
-    <p class="login-sub">Sign in to your dashboard</p>
-    <label class="login-label" for="login-email">Email address</label>
-    <input class="login-input" id="login-email" type="email" placeholder="you@example.com" autocomplete="email"/>
-    <button class="login-btn" id="login-btn" onclick="doLogin()">Access Dashboard</button>
-    <p class="login-error" id="login-error"></p>
-    <p class="login-info" id="login-info"></p>
+
+    <!-- Step 1: email -->
+    <div id="login-step-email">
+      <p class="login-sub">Sign in to your dashboard</p>
+      <label class="login-label" for="login-email">Email address</label>
+      <input class="login-input" id="login-email" type="email" placeholder="you@example.com" autocomplete="email"/>
+      <button class="login-btn" id="login-btn" onclick="doRequestOTP()">Send login code</button>
+      <p class="login-error" id="login-error"></p>
+    </div>
+
+    <!-- Step 2: OTP -->
+    <div id="login-step-otp" style="display:none">
+      <p class="login-sub" id="login-otp-sub">Enter the 6-digit code we sent to your email.</p>
+      <label class="login-label" for="login-otp">Login code</label>
+      <input class="login-input" id="login-otp" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code"/>
+      <button class="login-btn" id="login-otp-btn" onclick="doVerifyOTP()">Verify code</button>
+      <p style="font-size:13px;color:var(--gray);margin-top:12px;text-align:center">
+        <button onclick="backToEmail()" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px">Use a different email</button>
+      </p>
+      <p class="login-error" id="login-otp-error"></p>
+    </div>
   </div>
 </div>
 
@@ -184,6 +199,7 @@ tbody tr:last-child td{border-bottom:none}
     <div class="h-biz" id="h-biz-name"></div>
     <div class="h-right">
       <span class="plan-badge" id="plan-badge"></span>
+      <span id="last-refresh" style="font-size:12px;color:#555"></span>
       <button class="logout-btn" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -252,7 +268,6 @@ tbody tr:last-child td{border-bottom:none}
                 <th>Issue / Reason</th>
                 <th>Status</th>
                 <th>Time</th>
-                <th>Recording</th>
               </tr>
             </thead>
             <tbody id="leads-tbody"></tbody>
@@ -336,16 +351,15 @@ tbody tr:last-child td{border-bottom:none}
 
 <script>
 let DATA = null;
+let _refreshTimer = null;
 
-// ── AUTH ──
-async function doLogin() {
+// ── AUTH — Step 1: request OTP ──
+async function doRequestOTP() {
   const email = document.getElementById('login-email').value.trim();
-  const btn = document.getElementById('login-btn');
+  const btn   = document.getElementById('login-btn');
   const errEl = document.getElementById('login-error');
-  const infoEl = document.getElementById('login-info');
-
   errEl.style.display = 'none';
-  infoEl.style.display = 'none';
+
   if (!email || !email.includes('@')) {
     errEl.textContent = 'Please enter a valid email address.';
     errEl.style.display = 'block';
@@ -353,7 +367,7 @@ async function doLogin() {
   }
 
   btn.disabled = true;
-  btn.textContent = 'Checking…';
+  btn.textContent = 'Sending…';
   try {
     const r = await fetch('/api/auth/login', {
       method: 'POST',
@@ -361,24 +375,75 @@ async function doLogin() {
       body: JSON.stringify({ email })
     });
     const d = await r.json();
-    if (!d.token) {
-      infoEl.textContent = 'No account found for that email. Please check the address or sign up.';
-      infoEl.style.display = 'block';
+    if (d.success) {
+      document.getElementById('login-otp-sub').textContent =
+        `Enter the 6-digit code sent to ${email}`;
+      document.getElementById('login-step-email').style.display = 'none';
+      document.getElementById('login-step-otp').style.display   = 'block';
+      setTimeout(() => document.getElementById('login-otp').focus(), 50);
     } else {
-      localStorage.setItem('mc_token', d.token);
-      localStorage.setItem('mc_biz', JSON.stringify(d.business));
-      showApp();
+      errEl.textContent = d.error || 'Something went wrong. Please try again.';
+      errEl.style.display = 'block';
     }
   } catch {
     errEl.textContent = 'Connection error. Please try again.';
     errEl.style.display = 'block';
   }
   btn.disabled = false;
-  btn.textContent = 'Access Dashboard';
+  btn.textContent = 'Send login code';
+}
+
+// ── AUTH — Step 2: verify OTP ──
+async function doVerifyOTP() {
+  const email = document.getElementById('login-email').value.trim();
+  const otp   = document.getElementById('login-otp').value.trim();
+  const btn   = document.getElementById('login-otp-btn');
+  const errEl = document.getElementById('login-otp-error');
+  errEl.style.display = 'none';
+
+  if (!otp || otp.length !== 6) {
+    errEl.textContent = 'Please enter the 6-digit code.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Verifying…';
+  try {
+    const r = await fetch('/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp })
+    });
+    const d = await r.json();
+    if (d.token) {
+      localStorage.setItem('mc_token', d.token);
+      localStorage.setItem('mc_biz', JSON.stringify(d.business));
+      showApp();
+    } else {
+      errEl.textContent = d.error || 'Invalid code. Please try again.';
+      errEl.style.display = 'block';
+    }
+  } catch {
+    errEl.textContent = 'Connection error. Please try again.';
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Verify code';
+}
+
+function backToEmail() {
+  document.getElementById('login-step-otp').style.display   = 'none';
+  document.getElementById('login-step-email').style.display = 'block';
+  document.getElementById('login-otp-error').style.display  = 'none';
+  document.getElementById('login-otp').value = '';
 }
 
 document.getElementById('login-email').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
+  if (e.key === 'Enter') doRequestOTP();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('login-step-otp').style.display !== 'none') doVerifyOTP();
 });
 
 function logout() {
@@ -397,9 +462,10 @@ async function showApp() {
   setPlanBadge(biz.status || 'trial');
 
   await loadDashboard();
+  startAutoRefresh();
 }
 
-async function loadDashboard() {
+async function loadDashboard(silent = false) {
   const token = localStorage.getItem('mc_token');
   try {
     const r = await fetch('/api/dashboard', {
@@ -408,11 +474,23 @@ async function loadDashboard() {
     if (r.status === 401) { logout(); return; }
     DATA = await r.json();
     renderAll();
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('content').style.display = 'block';
+    if (!silent) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = 'block';
+    }
+    // Update last-refreshed indicator
+    const el = document.getElementById('last-refresh');
+    if (el) el.textContent = `Updated ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
   } catch {
-    document.getElementById('loading').innerHTML = '<p style="color:var(--gray)">Failed to load data. Please refresh.</p>';
+    if (!silent) {
+      document.getElementById('loading').innerHTML = '<p style="color:var(--gray)">Failed to load data. Please refresh.</p>';
+    }
   }
+}
+
+function startAutoRefresh() {
+  if (_refreshTimer) clearInterval(_refreshTimer);
+  _refreshTimer = setInterval(() => loadDashboard(true), 60 * 1000);
 }
 
 function setPlanBadge(status) {
@@ -428,10 +506,16 @@ function renderAll() {
   document.getElementById('h-biz-name').textContent = business.business_name;
   setPlanBadge(business.status);
 
+  const pg = DATA.pagination || {};
   document.getElementById('s-leads').textContent = stats.totalLeads;
   document.getElementById('s-leads-today').textContent = `${stats.leadsToday} today`;
   document.getElementById('s-calls').textContent = stats.totalCalls;
   document.getElementById('s-calls-today').textContent = `${stats.callsToday} today`;
+  // Show note if we're only showing a page of results
+  const leadsShown = (DATA.leads||[]).length;
+  document.getElementById('leads-count').textContent = leadsShown < stats.totalLeads
+    ? `${leadsShown} of ${stats.totalLeads}`
+    : `${leadsShown} result${leadsShown !== 1 ? 's' : ''}`;
   document.getElementById('s-returning').textContent = stats.returningCallers;
   document.getElementById('s-duration').textContent = stats.avgDuration;
 
@@ -466,8 +550,6 @@ function renderLeads() {
     (l.caller_number||'').includes(search)
   );
 
-  document.getElementById('leads-count').textContent = `${leads.length} result${leads.length !== 1 ? 's' : ''}`;
-
   const tbody = document.getElementById('leads-tbody');
   if (!leads.length) {
     tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No leads found.</td></tr>`;
@@ -478,16 +560,12 @@ function renderLeads() {
     const tag = l.returning
       ? `<span class="tag tag-returning">↩ Returning</span>`
       : `<span class="tag tag-new">★ New</span>`;
-    const recLink = l.recording_url
-      ? `<a class="rec-link" href="${esc(l.recording_url)}" target="_blank">▶ Play</a>`
-      : `<span style="color:var(--gray-light);font-size:12px">—</span>`;
     return `<tr>
       <td><strong>${esc(l.name || '—')}</strong></td>
       <td><a class="phone-link" href="tel:${esc(l.phone||'')}">${esc(l.phone || '—')}</a></td>
       <td><span class="issue-text" title="${esc(l.issue||'')}">${esc(l.issue || '—')}</span></td>
       <td>${tag}</td>
       <td style="white-space:nowrap;color:var(--gray);font-size:13px">${fmtTime(l.received_at)}</td>
-      <td>${recLink}</td>
     </tr>`;
   }).join('');
 }

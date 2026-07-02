@@ -1,41 +1,28 @@
 // =============================================================
 //  MissedCall.io — Production SaaS Server
 //  Vapi + Claude + ElevenLabs + Supabase + Twilio
-//  Fully audited and production ready
 // =============================================================
 
-import express from 'express';
+import express    from 'express';
+import helmet     from 'helmet';
+import rateLimit  from 'express-rate-limit';
 import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
-import dotenv from 'dotenv';
-import path from 'path';
+import crypto     from 'crypto';
+import dotenv     from 'dotenv';
+import path       from 'path';
 import { fileURLToPath } from 'url';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// CORS
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
-
-// Serve website
-app.use(express.static(__dirname));
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/dashboard', (_req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
-
-// Guard against missing keys
-if (!process.env.SUPABASE_URL)      throw new Error('SUPABASE_URL is required.');
+// =============================================================
+//  STARTUP GUARDS
+// =============================================================
+if (!process.env.SUPABASE_URL)         throw new Error('SUPABASE_URL is required.');
 if (!process.env.SUPABASE_SERVICE_KEY) throw new Error('SUPABASE_SERVICE_KEY is required.');
+if (!process.env.TOKEN_SECRET)         throw new Error('TOKEN_SECRET is required — generate with: openssl rand -hex 32');
+if (!process.env.ADMIN_KEY)            throw new Error('ADMIN_KEY is required.');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -43,9 +30,111 @@ const supabase = createClient(
 );
 
 // =============================================================
+//  EXPRESS SETUP
+// =============================================================
+const app = express();
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:  ["'self'"],
+      scriptSrc:   ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      styleSrc:    ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
+      fontSrc:     ["'self'", 'https://fonts.gstatic.com'],
+      connectSrc:  ["'self'"],
+      frameSrc:    ["'none'"],
+      objectSrc:   ["'none'"],
+    }
+  },
+  frameguard:     { action: 'deny' },   // X-Frame-Options: DENY
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// CORS — public for OPTIONS pre-flight, but never wildcard on credentialled API routes
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowed = process.env.ALLOWED_ORIGIN || process.env.SERVER_URL || '*';
+  res.header('Access-Control-Allow-Origin',  allowed === '*' ? '*' : origin === allowed ? origin : '');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+// =============================================================
+//  STATIC FILES — explicit allowlist only (never serve server.js / .env)
+// =============================================================
+const SAFE_FILES = {
+  '/':           'index.html',
+  '/dashboard':  'dashboard.html',
+  '/terms':      'Terms. html.txt',
+  '/privacy':    'ptivacy. html.txt',
+  '/refund':     'refund. html.txt',
+};
+for (const [route, file] of Object.entries(SAFE_FILES)) {
+  app.get(route, (_req, res) => res.sendFile(path.join(__dirname, file)));
+}
+
+// =============================================================
+//  RATE LIMITERS
+// =============================================================
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,  // 1 hour
+  max:      5,
+  message:  { error: 'Too many signup attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max:      10,
+  message:  { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
+
+// =============================================================
+//  PHONE NORMALISATION — converts common formats to E.164
+// =============================================================
+function normalizePhone(raw) {
+  if (!raw) return raw;
+  let s = raw.trim().replace(/[\s\-().]/g, '');
+  if (/^\+\d{7,15}$/.test(s)) return s;
+  if (s.startsWith('+')) return s;
+  if (s.startsWith('00')) return '+' + s.slice(2);
+  return s;
+}
+
+function countryCodeFromPhone(phone) {
+  if (!phone) return 'US';
+  const e = normalizePhone(phone);
+  if (e.startsWith('+1'))   return 'US';
+  if (e.startsWith('+44'))  return 'GB';
+  if (e.startsWith('+27'))  return 'ZA';
+  if (e.startsWith('+52'))  return 'MX';
+  if (e.startsWith('+61'))  return 'AU';
+  if (e.startsWith('+64'))  return 'NZ';
+  if (e.startsWith('+353')) return 'IE';
+  if (e.startsWith('+49'))  return 'DE';
+  if (e.startsWith('+33'))  return 'FR';
+  if (e.startsWith('+39'))  return 'IT';
+  if (e.startsWith('+34'))  return 'ES';
+  if (e.startsWith('+31'))  return 'NL';
+  if (e.startsWith('+55'))  return 'BR';
+  if (e.startsWith('+91'))  return 'IN';
+  if (e.startsWith('+65'))  return 'SG';
+  if (e.startsWith('+971')) return 'AE';
+  return 'US';
+}
+
+// =============================================================
 //  SIGNUP — POST /signup
 // =============================================================
-app.post('/signup', async (req, res) => {
+app.post('/signup', signupLimiter, async (req, res) => {
   const {
     firstName, lastName, businessName,
     mobileNumber, email, industry, plan,
@@ -60,23 +149,22 @@ app.post('/signup', async (req, res) => {
   }
 
   try {
-    console.log(`\n🆕 New signup: ${businessName} (${plan || 'growth'})`);
+    console.log(`[signup] ${businessName} (${plan || 'growth'})`);
 
-    // 1. Save to Supabase
     const { data: business, error: bizErr } = await supabase
       .from('businesses')
       .insert({
-        name:           `${firstName} ${lastName}`,
-        email,
-        business_name:  businessName,
-        mobile_number:  normalizePhone(mobileNumber),
-        industry:       industry  || 'General business',
-        biz_hours:      bizHours  || 'Monday to Friday 8am–6pm',
-        biz_address:    bizAddress || '',
-        biz_pricing:    bizPricing || 'Please call us for a quote',
-        plan:           plan || 'growth',
-        trial_ends_at:  new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        status:         'trial'
+        name:          `${firstName} ${lastName}`,
+        email:         email.toLowerCase().trim(),
+        business_name: businessName,
+        mobile_number: normalizePhone(mobileNumber),
+        industry:      industry  || 'General business',
+        biz_hours:     bizHours  || 'Monday to Friday 8am–6pm',
+        biz_address:   bizAddress || '',
+        biz_pricing:   bizPricing || 'Please call us for a quote',
+        plan:          plan || 'growth',
+        trial_ends_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        status:        'trial'
       })
       .select()
       .single();
@@ -88,7 +176,6 @@ app.post('/signup', async (req, res) => {
       throw new Error(bizErr.message);
     }
 
-    // 2. Create Vapi assistant
     let assistantId = null;
     let phoneNumber  = process.env.DEFAULT_MISSEDCALL_NUMBER || null;
 
@@ -97,32 +184,26 @@ app.post('/signup', async (req, res) => {
         assistantId = await createVapiAssistant(business);
         phoneNumber  = await assignPhoneNumber(assistantId, business.mobile_number);
       } catch (vapiErr) {
-        console.warn('Vapi setup failed:', vapiErr.message);
+        console.warn('[signup] Vapi setup failed:', vapiErr.message);
       }
     }
 
-    // 3. Update record
     if (assistantId || phoneNumber) {
-      const { error: upErr } = await supabase
-        .from('businesses')
+      await supabase.from('businesses')
         .update({ vapi_assistant_id: assistantId, missedcall_number: phoneNumber })
         .eq('id', business.id);
-      if (upErr) console.error('Update error:', upErr.message);
     }
 
-    // 4. Send welcome email
     await sendWelcomeEmail({ ...business, name: `${firstName} ${lastName}` }, phoneNumber);
 
-    // 5. Send owner SMS confirming new signup
     if (process.env.TWILIO_ACCOUNT_SID && process.env.OWNER_PHONE) {
       await sendSMS(
         process.env.OWNER_PHONE,
-        `🎉 New MissedCall signup!\nBusiness: ${businessName}\nPlan: ${plan || 'growth'}\nContact: ${mobileNumber}`
+        `New MissedCall signup!\nBusiness: ${businessName}\nPlan: ${plan || 'growth'}\nContact: ${normalizePhone(mobileNumber)}`
       );
     }
 
-    console.log(`✅ ${businessName} live${phoneNumber ? ' on ' + phoneNumber : ''}`);
-
+    console.log(`[signup] ${businessName} live${phoneNumber ? ' on ' + phoneNumber : ''}`);
     res.json({
       success: true,
       missedcallNumber: phoneNumber,
@@ -132,7 +213,7 @@ app.post('/signup', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Signup error:', err.message);
+    console.error('[signup] error:', err.message);
     res.status(500).json({ error: 'Something went wrong. Please try again or contact support.' });
   }
 });
@@ -141,18 +222,14 @@ app.post('/signup', async (req, res) => {
 //  CREATE VAPI ASSISTANT
 // =============================================================
 async function createVapiAssistant(business) {
-  const res = await fetch('https://api.vapi.ai/assistant', {
-    method: 'POST',
-    headers: {
-      Authorization:  `Bearer ${process.env.VAPI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(buildAssistantConfig(business))
+  const r = await fetch('https://api.vapi.ai/assistant', {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${process.env.VAPI_API_KEY}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify(buildAssistantConfig(business))
   });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error('Vapi error: ' + JSON.stringify(data));
-  console.log(`Vapi assistant created: ${data.id}`);
+  const data = await r.json();
+  if (!r.ok) throw new Error('Vapi error: ' + JSON.stringify(data));
+  console.log(`[vapi] assistant created: ${data.id}`);
   return data.id;
 }
 
@@ -163,40 +240,38 @@ function buildAssistantConfig(business) {
   const { business_name, id, plan } = business;
   const canBook = plan === 'growth' || plan === 'pro';
 
-  const tools = [
-    {
-      type: 'function',
-      function: {
-        name:        'save_lead',
-        description: "Save the caller's details. Call this once you have confirmed their name, issue, and phone number.",
-        parameters: {
-          type:     'object',
-          required: ['name', 'issue', 'phone'],
-          properties: {
-            name:  { type: 'string', description: "Caller's full name" },
-            issue: { type: 'string', description: 'What they need help with or reason for calling' },
-            phone: { type: 'string', description: "Caller's callback phone number" }
-          }
+  const tools = [{
+    type: 'function',
+    function: {
+      name:        'save_lead',
+      description: "Save the caller's details. Call this once you have their name, issue, and phone number.",
+      parameters: {
+        type:     'object',
+        required: ['name', 'issue', 'phone'],
+        properties: {
+          name:  { type: 'string', description: "Caller's full name" },
+          issue: { type: 'string', description: 'Reason for calling' },
+          phone: { type: 'string', description: "Caller's callback number" }
         }
       }
     }
-  ];
+  }];
 
   if (canBook) {
     tools.push({
       type: 'function',
       function: {
         name:        'book_appointment',
-        description: "Book an appointment for the caller. Use after confirming their name, phone number, service/package, and preferred date and time.",
+        description: "Book an appointment. Use after confirming name, phone, service, and preferred date/time.",
         parameters: {
           type:     'object',
           required: ['name', 'phone', 'service', 'appointment_time'],
           properties: {
-            name:             { type: 'string', description: "Caller's full name" },
-            phone:            { type: 'string', description: "Caller's callback phone number" },
-            service:          { type: 'string', description: "The service or package they are booking" },
-            appointment_time: { type: 'string', description: "Appointment date and time in ISO 8601 format, e.g. 2025-07-15T14:00:00" },
-            notes:            { type: 'string', description: "Any special requests or notes from the caller" }
+            name:             { type: 'string' },
+            phone:            { type: 'string' },
+            service:          { type: 'string', description: "Service or package" },
+            appointment_time: { type: 'string', description: "ISO 8601, e.g. 2025-07-15T14:00:00" },
+            notes:            { type: 'string' }
           }
         }
       }
@@ -204,168 +279,115 @@ function buildAssistantConfig(business) {
   }
 
   return {
-    name: `MissedCall — ${business_name}`,
-
+    name:  `MissedCall — ${business_name}`,
     model: {
       provider:     'anthropic',
       model:        'claude-sonnet-4-20250514',
       systemPrompt: buildSystemPrompt(business),
       temperature:  0.7,
-      maxTokens:    250,  // enough for natural responses without getting cut off
+      maxTokens:    250,
     },
-
     voice: {
-      provider:                  'elevenlabs',
-      voiceId:                   'EXAVITQu4vr4xnSDxMaL', // Sarah — warm, natural
-      model:                     'eleven_flash_v2_5',     // lowest latency for live calls
-      stability:                 0.40,
-      similarityBoost:           0.80,
-      style:                     0.30,
-      useSpeakerBoost:           true,
-      optimizeStreamingLatency:  4,
+      provider:                 'elevenlabs',
+      voiceId:                  'EXAVITQu4vr4xnSDxMaL', // Sarah
+      model:                    'eleven_flash_v2_5',
+      stability:                0.40,
+      similarityBoost:          0.80,
+      style:                    0.30,
+      useSpeakerBoost:          true,
+      optimizeStreamingLatency: 4,
     },
-
-    transcriber: {
-      provider:    'deepgram',
-      model:       'nova-2',
-      language:    'en',
-      smartFormat: true,
-    },
-
+    transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en', smartFormat: true },
     silenceTimeoutSeconds: 1.5,
     maxDurationSeconds:    300,
-
-    // First message — Aria says this the moment the call connects
-    firstMessage: `Hi there, thanks for calling ${business_name}! My name's Aria. Could I get your name please?`,
-
-    endCallMessage: "Thanks so much for calling. Someone from the team will be in touch soon. Take care!",
-
-    endCallPhrases: [
-      'goodbye', 'bye', 'bye bye', 'thanks bye',
-      'thank you bye', 'that\'s all', 'have a good day',
-      'talk later', 'cheers'
-    ],
-
-    // Webhook includes businessId so we know which client the call belongs to
-    serverUrl: `${process.env.SERVER_URL}/vapi/webhook/${id}`,
-
+    firstMessage:    `Hi there, thanks for calling ${business_name}! My name's Aria. Could I get your name please?`,
+    endCallMessage:  "Thanks so much for calling. Someone from the team will be in touch soon. Take care!",
+    endCallPhrases:  ['goodbye','bye','bye bye','thanks bye','thank you bye',"that's all",'have a good day','talk later','cheers'],
+    serverUrl:       `${process.env.SERVER_URL}/vapi/webhook/${id}`,
+    serverUrlSecret: process.env.VAPI_WEBHOOK_SECRET || undefined,
     tools
   };
 }
 
 // =============================================================
-//  SYSTEM PROMPT — personalised per business
+//  SYSTEM PROMPT
 // =============================================================
 function buildSystemPrompt(business) {
-  const {
-    business_name,
-    industry,
-    biz_hours,
-    biz_address,
-    biz_pricing,
-    plan
-  } = business;
-
+  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan } = business;
   const canBook = plan === 'growth' || plan === 'pro';
 
   return `You are Aria, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
 
-BUSINESS INFORMATION — answer these confidently when asked:
+BUSINESS INFORMATION:
 - Hours: ${biz_hours || 'Monday to Friday 8am–6pm'}
-- Address / Location: ${biz_address || 'Please call us for our location'}
+- Address: ${biz_address || 'Please call us for our location'}
 - Pricing: ${biz_pricing || 'Pricing depends on the job — we give free quotes'}
 - Payment: Cash and card accepted
-- Emergencies: Yes we handle them — leave your number and someone calls back within 15 minutes
+- Emergencies: Yes — leave your number and someone calls back within 15 minutes
 
-YOUR JOB: Have a natural, helpful conversation. Answer any question the caller has. Collect their name, issue, and callback number. Once you have all three, confirm and save them.${canBook ? ` You can also book appointments directly for callers who want one.` : ''}
+YOUR JOB: Have a natural conversation. Answer questions. Collect name, issue, and callback number.${canBook ? ' You can also book appointments.' : ''}
 
 CONVERSATION FLOW:
-- You already asked for their name in your first message. Once they give it, use it naturally.
+- You already asked for their name. Once they give it, use it naturally.
 - Ask what you can help with today.
-- Listen, show empathy, answer any questions they have from the business info above.
-- Ask for their callback number including country code if they haven't given it (e.g. "Could I get your number including the country code?"). Store it exactly as they say it.${canBook ? `
-- If they want to book an appointment: ask what service/package they need, then ask their preferred date and time. Confirm: "So that's [service] on [date] at [time] — shall I go ahead and book that?" Once they confirm, call book_appointment with their name, phone, service, and the appointment_time in ISO 8601 format (e.g. 2025-07-15T14:00:00). After booking say: "Perfect [name], you're all booked in for [service] on [date] at [time]. You'll get a confirmation text now, and a reminder the day before."
-- If they don't want an appointment: collect name, issue, phone and use save_lead as normal.` : `
-- Once you have all three: "Perfect [name], I've got you noted down. Someone from ${business_name} will call you back on [number] shortly."
-- Then call the save_lead tool with name, issue, and phone.`}
-- After saving or booking, say a warm goodbye.
+- Listen, show empathy, answer any questions from the business info above.
+- Ask for their callback number including country code (e.g. "Could I get your number with the country code?"). Store it exactly as they say it.${canBook ? `
+- If they want to book: ask what service/package, then preferred date and time. Confirm: "So that's [service] on [date] at [time] — shall I book that?" Once confirmed, call book_appointment with ISO 8601 time. Then say: "Perfect [name], you're booked for [service] on [date] at [time]. You'll get a confirmation text now and a reminder the day before."
+- If no appointment: collect name, issue, phone and call save_lead.` : `
+- Once you have all three: "Perfect [name], I've got you noted. Someone from ${business_name} will call you back on [number] shortly." Then call save_lead.`}
+- Say a warm goodbye after saving or booking.
 
-HANDLING ANY QUESTION:
-- Pricing questions: give the answer from business info above. Never dodge it.
-- Hours, location, payment: answer directly and naturally.
-- Something you don't know: "That's a great question — I'll make sure whoever calls you back can answer that for you."
-- "Are you a real person / AI?": "I'm an AI assistant, but a real person from ${business_name} will call you right back — I'm just here so you don't get missed."
-- Upset or urgent caller: lead with empathy first. "Oh no, let's get someone to you as fast as we can."
+HANDLING QUESTIONS:
+- Pricing, hours, location: answer directly from business info. Never dodge.
+- Don't know: "Great question — I'll make sure whoever calls you back can answer that."
+- "Are you AI?": "I'm an AI assistant, but a real person from ${business_name} will call right back."
+- Upset/urgent caller: empathy first. "Oh no, let's get someone to you as fast as we can."
 - NEVER say: cannot help, don't have access, as an AI language model, I apologize for the inconvenience.
 
-SPEAKING STYLE:
-- Warm, natural, human. Like a real receptionist — not a robot.
-- Contractions always: I'll, we'll, that's, don't, you're, it's.
-- Keep replies to 1–2 short sentences. This is a phone call.
-- Natural filler: "Sure!", "Of course.", "Got it.", "No worries.", "Absolutely."
-- Use caller's name naturally — not every sentence, just occasionally.`;
+STYLE: Warm, natural, human. Contractions always. 1–2 short sentences per reply. This is a phone call.`;
 }
 
 // =============================================================
-//  ASSIGN PHONE NUMBER via Vapi
+//  ASSIGN PHONE NUMBER
 // =============================================================
-// Derive a 2-letter country code from a mobile number in E.164 or local format.
-// Used when purchasing a Vapi/Twilio number so callers get a local number.
-function countryCodeFromPhone(phone) {
-  if (!phone) return 'US';
-  const e = normalizePhone(phone);
-  if (e.startsWith('+1'))  return 'US';
-  if (e.startsWith('+44')) return 'GB';
-  if (e.startsWith('+27')) return 'ZA';
-  if (e.startsWith('+52')) return 'MX';
-  if (e.startsWith('+61')) return 'AU';
-  if (e.startsWith('+64')) return 'NZ';
-  if (e.startsWith('+353'))return 'IE';
-  if (e.startsWith('+49')) return 'DE';
-  if (e.startsWith('+33')) return 'FR';
-  if (e.startsWith('+39')) return 'IT';
-  if (e.startsWith('+34')) return 'ES';
-  if (e.startsWith('+31')) return 'NL';
-  if (e.startsWith('+55')) return 'BR';
-  if (e.startsWith('+91')) return 'IN';
-  if (e.startsWith('+65')) return 'SG';
-  if (e.startsWith('+971'))return 'AE';
-  return 'US'; // default fallback
-}
-
 async function assignPhoneNumber(assistantId, ownerPhone) {
   const country = countryCodeFromPhone(ownerPhone);
   try {
-    const res = await fetch('https://api.vapi.ai/phone-number', {
-      method: 'POST',
-      headers: {
-        Authorization:  `Bearer ${process.env.VAPI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        provider:          'twilio',
-        twilioAccountSid:  process.env.TWILIO_ACCOUNT_SID,
-        twilioAuthToken:   process.env.TWILIO_AUTH_TOKEN,
+    const r = await fetch('https://api.vapi.ai/phone-number', {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${process.env.VAPI_API_KEY}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        provider:         'twilio',
+        twilioAccountSid: process.env.TWILIO_ACCOUNT_SID,
+        twilioAuthToken:  process.env.TWILIO_AUTH_TOKEN,
         assistantId,
-        ...(country !== 'US' && { country }), // Vapi accepts ISO country code
+        ...(country !== 'US' && { country }),
       })
     });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(JSON.stringify(data));
-    console.log(`Phone number assigned: ${data.number}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(JSON.stringify(data));
+    console.log(`[vapi] phone assigned: ${data.number}`);
     return data.number;
-
   } catch (err) {
-    console.warn('Phone number auto-buy failed:', err.message);
+    console.warn('[vapi] phone buy failed:', err.message);
     return process.env.DEFAULT_MISSEDCALL_NUMBER || null;
   }
 }
 
 // =============================================================
-//  VAPI WEBHOOK — receives all call events
+//  VAPI WEBHOOK — verify secret, handle events
 // =============================================================
 app.post('/vapi/webhook/:businessId', async (req, res) => {
+  // Signature check — Vapi sends the secret in x-vapi-secret
+  const webhookSecret = process.env.VAPI_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const received = req.headers['x-vapi-secret'];
+    if (!received || received !== webhookSecret) {
+      console.warn('[webhook] rejected — bad secret');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+
   const { message }    = req.body;
   const { businessId } = req.params;
   if (!message) return res.json({ result: 'ok' });
@@ -374,187 +396,149 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
   const callId = call?.id;
 
   try {
-
-    // ── Tool call — Aria wants to save a lead ──
+    // ── Tool calls ──
     if (type === 'tool-calls') {
-      const results = [];
+      // Check subscription before processing
+      const { data: biz } = await supabase
+        .from('businesses')
+        .select('status, trial_ends_at, plan')
+        .eq('id', businessId)
+        .single();
 
-      for (const toolCall of message.toolCallList || []) {
+      if (biz && isExpired(biz)) {
+        console.warn(`[webhook] suspended business ${businessId}`);
+        const results = (message.toolCallList || []).map(tc => ({
+          toolCallId: tc.id,
+          result: JSON.stringify({ success: false, error: 'Account suspended' })
+        }));
+        return res.json({ results });
+      }
+
+      const results = [];
+      for (const tc of message.toolCallList || []) {
         let result;
         try {
-          // FIX: Vapi sends arguments not parameters
-          const args = toolCall.function.arguments || toolCall.function.parameters || {};
+          const args   = tc.function.arguments || tc.function.parameters || {};
           const params = typeof args === 'string' ? JSON.parse(args) : args;
-
-          if (toolCall.function.name === 'save_lead') {
+          if (tc.function.name === 'save_lead') {
             result = await saveLead(businessId, callId, call, params);
-          } else if (toolCall.function.name === 'book_appointment') {
+          } else if (tc.function.name === 'book_appointment') {
             result = await saveAppointment(businessId, callId, call, params);
           }
         } catch (err) {
-          console.error('Tool call error:', err.message);
+          console.error('[webhook] tool error:', err.message);
           result = { success: false, error: err.message };
         }
-
-        results.push({
-          toolCallId: toolCall.id,
-          result:     JSON.stringify(result)
-        });
+        results.push({ toolCallId: tc.id, result: JSON.stringify(result) });
       }
-
       return res.json({ results });
     }
 
-    // ── Call started ──
     if (type === 'call-started') {
-      console.log(`📞 Call started: ${callId} (business: ${businessId})`);
-      const { error } = await supabase.from('calls').insert({
+      console.log(`[call] started ${callId} (biz: ${businessId})`);
+      await supabase.from('calls').insert({
         id:            callId,
         business_id:   businessId,
         caller_number: call?.customer?.number || null,
         started_at:    new Date().toISOString(),
         status:        'in_progress'
       });
-      if (error) console.error('Call insert error:', error.message);
     }
 
-    // ── Call ended ──
     if (type === 'call-ended') {
-      console.log(`📴 Call ended: ${callId} (${call?.duration || 0}s)`);
-      const { error } = await supabase.from('calls').update({
+      console.log(`[call] ended ${callId} (${call?.duration || 0}s)`);
+      await supabase.from('calls').update({
         status:           'completed',
         ended_at:         new Date().toISOString(),
         duration_seconds: call?.duration || null,
         recording_url:    call?.recordingUrl || null,
       }).eq('id', callId);
-      if (error) console.error('Call update error:', error.message);
     }
 
   } catch (err) {
-    console.error('Webhook error:', err.message);
+    console.error('[webhook] error:', err.message);
   }
 
   return res.json({ result: 'ok' });
 });
 
+// Returns true if the business's trial has expired and they have not upgraded
+function isExpired(biz) {
+  if (biz.status === 'active') return false;
+  if (biz.status === 'trial' && biz.trial_ends_at) {
+    return new Date(biz.trial_ends_at) < new Date();
+  }
+  return biz.status === 'cancelled' || biz.status === 'past_due';
+}
+
 // =============================================================
-//  SAVE LEAD + SMS to owner
+//  SAVE LEAD
 // =============================================================
 async function saveLead(businessId, callId, call, { name, issue, phone }) {
-  // Validate we have the required fields
-  if (!name || !phone) {
-    console.warn('save_lead called without name or phone');
-    return { success: false, error: 'Missing required fields' };
-  }
+  if (!name || !phone) return { success: false, error: 'Missing name or phone' };
 
-  // Get business details for SMS
-  const { data: business, error: bizErr } = await supabase
-    .from('businesses')
-    .select('business_name, mobile_number')
-    .eq('id', businessId)
-    .single();
+  const { data: business } = await supabase
+    .from('businesses').select('business_name, mobile_number').eq('id', businessId).single();
 
-  if (bizErr) console.error('Business lookup error:', bizErr.message);
-
-  // Save lead to database
   const lead = {
     business_id:   businessId,
     call_id:       callId,
     name,
     issue:         issue || 'Not specified',
-    phone,
+    phone:         normalizePhone(phone),
     caller_number: call?.customer?.number || null,
     received_at:   new Date().toISOString()
   };
 
-  const { error: leadErr } = await supabase.from('leads').insert(lead);
-  if (leadErr) console.error('Lead insert error:', leadErr.message);
+  const { error } = await supabase.from('leads').insert(lead);
+  if (error) console.error('[lead] insert error:', error.message);
 
-  // SMS to business owner
-  if (business) {
-    await sendSMSToOwner(business, lead);
-  }
+  if (business) await sendSMSToOwner(business, lead);
 
-  console.log(`✅ Lead saved: ${name} | ${phone} | "${issue}"`);
+  console.log(`[lead] saved: ${name} | ${phone}`);
   return { success: true };
 }
 
 // =============================================================
-//  PHONE NORMALISATION — converts common formats to E.164
-//  Works for any country. Falls back to the raw string if it
-//  can't be confidently cleaned up (Twilio will reject invalid
-//  numbers with a clear error rather than silently miscrouting).
-// =============================================================
-function normalizePhone(raw) {
-  if (!raw) return raw;
-  // Strip everything except digits and leading +
-  let s = raw.trim().replace(/[\s\-().]/g, '');
-  // Already E.164
-  if (/^\+\d{7,15}$/.test(s)) return s;
-  // Has + but extra chars were stripped above — recheck
-  if (s.startsWith('+')) return s;
-  // Strip leading 00 (international dialling prefix) → +
-  if (s.startsWith('00')) return '+' + s.slice(2);
-  // Strip leading trunk zero for common markets, but only if we
-  // have a country code hint from the business record — otherwise
-  // leave as-is so Twilio can reject clearly rather than mis-route.
-  // Without a hint we can't know if 07911… is UK (+44) or SA (+27).
-  return s;
-}
-
-// =============================================================
-//  SAVE APPOINTMENT + SMS confirmation to caller
+//  SAVE APPOINTMENT
 // =============================================================
 async function saveAppointment(businessId, callId, call, { name, phone, service, appointment_time, notes }) {
   if (!name || !phone || !service || !appointment_time) {
-    console.warn('book_appointment called with missing fields');
     return { success: false, error: 'Missing required fields' };
   }
 
-  const { data: business, error: bizErr } = await supabase
-    .from('businesses')
-    .select('business_name, mobile_number, biz_address, plan')
-    .eq('id', businessId)
-    .single();
-
-  if (bizErr) console.error('Business lookup error:', bizErr.message);
+  const { data: business } = await supabase
+    .from('businesses').select('business_name, mobile_number, biz_address').eq('id', businessId).single();
 
   const apptTime = new Date(appointment_time);
+  if (isNaN(apptTime.getTime())) return { success: false, error: 'Invalid appointment_time' };
 
-  const { data: appt, error: apptErr } = await supabase
-    .from('appointments')
-    .insert({
-      business_id:      businessId,
-      call_id:          callId,
-      name,
-      phone,
-      service,
-      appointment_time: apptTime.toISOString(),
-      notes:            notes || null,
-      status:           'confirmed',
-      reminder_sent:    false
-    })
-    .select()
-    .single();
+  const { data: appt, error } = await supabase.from('appointments').insert({
+    business_id:      businessId,
+    call_id:          callId,
+    name,
+    phone:            normalizePhone(phone),
+    service,
+    appointment_time: apptTime.toISOString(),
+    notes:            notes || null,
+    status:           'confirmed',
+    reminder_sent:    false
+  }).select().single();
 
-  if (apptErr) {
-    console.error('Appointment insert error:', apptErr.message);
-    return { success: false, error: apptErr.message };
+  if (error) {
+    console.error('[appt] insert error:', error.message);
+    return { success: false, error: error.message };
   }
 
-  console.log(`📅 Appointment booked: ${name} | ${service} | ${formatApptTime(apptTime)}`);
+  console.log(`[appt] booked: ${name} | ${service} | ${formatApptTime(apptTime)}`);
 
   if (business) {
     await sendAppointmentConfirmation(business, appt);
-    // SMS to owner
     await sendSMS(
-      business.mobile_number,
-      `📅 New appointment — ${business.business_name}\n` +
-      `Name:    ${name}\n` +
-      `Phone:   ${phone}\n` +
-      `Service: ${service}\n` +
-      `Time:    ${formatApptTime(apptTime)}\n` +
-      (notes ? `Notes:   ${notes}` : '')
+      normalizePhone(business.mobile_number),
+      `New appointment — ${business.business_name}\n` +
+      `Name:    ${name}\nPhone:   ${phone}\nService: ${service}\nTime:    ${formatApptTime(apptTime)}` +
+      (notes ? `\nNotes:   ${notes}` : '')
     );
   }
 
@@ -562,173 +546,146 @@ async function saveAppointment(businessId, callId, call, { name, phone, service,
 }
 
 // =============================================================
-//  APPOINTMENT CONFIRMATION SMS → caller
+//  TWILIO INBOUND SMS — handle CANCEL / STOP replies
 // =============================================================
-async function sendAppointmentConfirmation(business, appt) {
-  if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
-  appt = { ...appt, phone: normalizePhone(appt.phone) };
+app.post('/twilio/sms', async (req, res) => {
+  const from = req.body.From || '';
+  const body = (req.body.Body || '').trim().toUpperCase();
 
-  const time    = formatApptTime(new Date(appt.appointment_time));
-  const address = business.biz_address || 'our location';
+  const twiml = (msg) => res
+    .set('Content-Type', 'text/xml')
+    .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${msg}</Message></Response>`);
 
-  const body =
-    `Hi ${appt.name}! Your appointment at ${business.business_name} is confirmed.\n` +
-    `📋 Service: ${appt.service}\n` +
-    `📅 When:    ${time}\n` +
-    `📍 Where:   ${address}\n` +
-    `We'll send you a reminder the day before. See you then!`;
+  if (body === 'CANCEL' || body === 'STOP' || body === 'UNSUBSCRIBE') {
+    // Mark the next upcoming appointment for this phone as cancelled
+    const normalized = normalizePhone(from);
+    const { data: appt } = await supabase
+      .from('appointments')
+      .select('id, name, service, appointment_time')
+      .eq('phone', normalized)
+      .eq('status', 'confirmed')
+      .gt('appointment_time', new Date().toISOString())
+      .order('appointment_time', { ascending: true })
+      .limit(1)
+      .single();
 
-  await sendSMS(appt.phone, body);
-}
+    if (appt) {
+      await supabase.from('appointments')
+        .update({ status: 'cancelled' })
+        .eq('id', appt.id);
+      console.log(`[sms] appointment ${appt.id} cancelled by ${normalized}`);
+      return twiml(`Your appointment for ${appt.service} on ${formatApptTime(new Date(appt.appointment_time))} has been cancelled. We hope to see you again soon!`);
+    }
+    return twiml("We couldn't find an upcoming appointment for your number. Please call us directly if you need help.");
+  }
 
-// =============================================================
-//  APPOINTMENT REMINDER SMS → caller (sent ~24h before)
-// =============================================================
-async function sendAppointmentReminder(business, appt) {
-  if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
-  appt = { ...appt, phone: normalizePhone(appt.phone) };
-
-  const time    = formatApptTime(new Date(appt.appointment_time));
-  const address = business.biz_address || 'our location';
-
-  const body =
-    `Reminder: Your appointment at ${business.business_name} is tomorrow!\n` +
-    `📋 Service: ${appt.service}\n` +
-    `📅 When:    ${time}\n` +
-    `📍 Where:   ${address}\n` +
-    `Reply CANCEL to cancel or call us if you need to reschedule.`;
-
-  await sendSMS(appt.phone, body);
-  console.log(`🔔 Reminder sent to ${appt.phone} for appt #${appt.id}`);
-}
+  // Ignore other inbound messages silently
+  res.set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
+});
 
 // =============================================================
-//  FORMAT APPOINTMENT TIME
-// =============================================================
-function formatApptTime(date) {
-  return date.toLocaleString('en-US', {
-    weekday: 'short',
-    month:   'short',
-    day:     'numeric',
-    year:    'numeric',
-    hour:    'numeric',
-    minute:  '2-digit',
-    hour12:  true
-  });
-}
-
-// =============================================================
-//  SMS TO BUSINESS OWNER
+//  SMS HELPERS
 // =============================================================
 async function sendSMSToOwner(business, lead) {
   if (!process.env.TWILIO_ACCOUNT_SID || !business?.mobile_number) return;
-  business = { ...business, mobile_number: normalizePhone(business.mobile_number) };
-
-  const time = new Date(lead.received_at).toLocaleString('en-US', {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  });
-
-  const body =
-    `📞 New call — ${business.business_name}\n` +
-    `Name:  ${lead.name}\n` +
-    `Phone: ${lead.phone}\n` +
-    `Issue: ${lead.issue}\n` +
-    `Time:  ${time}`;
-
-  await sendSMS(business.mobile_number, body);
+  const time = new Date(lead.received_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
+  await sendSMS(
+    normalizePhone(business.mobile_number),
+    `New call — ${business.business_name}\nName:  ${lead.name}\nPhone: ${lead.phone}\nIssue: ${lead.issue}\nTime:  ${time}`
+  );
 }
 
-// =============================================================
-//  SEND SMS via Twilio
-// =============================================================
-async function sendSMS(to, body) {
-  try {
-    const creds = Buffer.from(
-      `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
-    ).toString('base64');
+async function sendAppointmentConfirmation(business, appt) {
+  if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
+  const time    = formatApptTime(new Date(appt.appointment_time));
+  const address = business.biz_address || 'our location';
+  await sendSMS(
+    normalizePhone(appt.phone),
+    `Hi ${appt.name}! Your appointment at ${business.business_name} is confirmed.\n` +
+    `Service: ${appt.service}\nWhen: ${time}\nWhere: ${address}\n` +
+    `Reply CANCEL to cancel. We'll remind you the day before!`
+  );
+}
 
-    const res = await fetch(
+async function sendAppointmentReminder(business, appt) {
+  if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
+  const time    = formatApptTime(new Date(appt.appointment_time));
+  const address = business.biz_address || 'our location';
+  await sendSMS(
+    normalizePhone(appt.phone),
+    `Reminder: Your appointment at ${business.business_name} is tomorrow!\n` +
+    `Service: ${appt.service}\nWhen: ${time}\nWhere: ${address}\n` +
+    `Reply CANCEL to cancel or call us to reschedule.`
+  );
+  console.log(`[reminder] sent to ${appt.phone} for appt #${appt.id}`);
+}
+
+async function sendSMS(to, body) {
+  if (!process.env.TWILIO_ACCOUNT_SID) return;
+  try {
+    const creds = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+    const r = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
       {
         method:  'POST',
-        headers: {
-          Authorization:  `Basic ${creds}`,
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: new URLSearchParams({
-          To:   to,
-          From: process.env.TWILIO_FROM_NUMBER,
-          Body: body
-        })
+        headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    new URLSearchParams({ To: to, From: process.env.TWILIO_FROM_NUMBER, Body: body })
       }
     );
-
-    if (res.ok) {
-      console.log(`📱 SMS sent to ${to}`);
-    } else {
-      const err = await res.text();
-      console.error('Twilio error:', err);
-    }
+    if (r.ok) console.log(`[sms] sent to ${to}`);
+    else console.error('[sms] Twilio error:', await r.text());
   } catch (err) {
-    console.error('SMS failed:', err.message);
+    console.error('[sms] failed:', err.message);
   }
 }
 
+function formatApptTime(date) {
+  return date.toLocaleString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true
+  });
+}
+
 // =============================================================
-//  WELCOME EMAIL via Resend
+//  WELCOME EMAIL
 // =============================================================
 async function sendWelcomeEmail(business, phoneNumber) {
-  if (!process.env.RESEND_API_KEY) {
-    console.log(`📧 [Email skipped — no RESEND_API_KEY] Would send to: ${business.email}`);
-    return;
-  }
-
+  if (!process.env.RESEND_API_KEY) return;
   const instructions = phoneNumber
     ? `Your MissedCall.io number is: <strong>${phoneNumber}</strong><br/><br/>
-       <strong>To activate in 30 seconds:</strong><br/>
-       Go to your phone settings → Call Forwarding → Forward to <strong>${phoneNumber}</strong><br/><br/>
-       That's it. Aria will answer every call from this moment on.`
+       <strong>Activate in 30 seconds:</strong><br/>
+       Go to your phone settings → Call Forwarding → Forward to <strong>${phoneNumber}</strong>`
     : `Our team will contact you within 24 hours to complete your setup.`;
-
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method:  'POST',
-      headers: {
-        Authorization:  `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from:    `MissedCall <hello@${process.env.EMAIL_DOMAIN || 'missedcall.io'}>`,
         to:      business.email,
-        subject: `You're live on MissedCall.io! 🎉`,
-        html: `
-          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
-            <h2 style="color:#ff5c00">Welcome to MissedCall.io!</h2>
-            <p>Hi ${business.name},</p>
-            <p>Your AI receptionist is set up for <strong>${business.business_name}</strong>.</p>
-            <br/>
-            ${instructions}
-            <br/><br/>
-            <p>You'll get an SMS at <strong>${business.mobile_number}</strong> every time Aria captures a lead.</p>
-            <p>Your <strong>7-day free trial</strong> starts now. No credit card needed until it ends.</p>
-            <br/>
-            <p style="color:#888">— The MissedCall.io Team</p>
-          </div>
-        `
+        subject: `You're live on MissedCall.io!`,
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+          <h2 style="color:#ff5c00">Welcome to MissedCall.io!</h2>
+          <p>Hi ${business.name},</p>
+          <p>Your AI receptionist is set up for <strong>${business.business_name}</strong>.</p>
+          <br/>${instructions}<br/><br/>
+          <p>You'll get an SMS at <strong>${business.mobile_number}</strong> every time Aria captures a lead.</p>
+          <p>Your <strong>7-day free trial</strong> starts now.</p>
+          <br/><p style="color:#888">— The MissedCall.io Team</p>
+        </div>`
       })
     });
-    if (res.ok) console.log(`📧 Welcome email sent to ${business.email}`);
-    else console.error('Email error:', await res.text());
+    if (r.ok) console.log(`[email] welcome sent to ${business.email}`);
+    else console.error('[email] error:', await r.text());
   } catch (err) {
-    console.error('Email failed:', err.message);
+    console.error('[email] failed:', err.message);
   }
 }
 
 // =============================================================
-//  DASHBOARD AUTH
+//  DASHBOARD AUTH — OTP-based login
 // =============================================================
-const TOKEN_SECRET = process.env.TOKEN_SECRET || 'missedcall-dashboard-secret';
+const TOKEN_SECRET = process.env.TOKEN_SECRET;
 
 function signToken(businessId) {
   const payload = `${businessId}:${Date.now()}`;
@@ -739,13 +696,16 @@ function signToken(businessId) {
 function verifyToken(token) {
   try {
     const decoded = Buffer.from(token, 'base64url').toString();
-    const parts = decoded.split(':');
+    const parts   = decoded.split(':');
     if (parts.length !== 3) return null;
     const [businessId, ts, sig] = parts;
-    // tokens valid for 30 days
     if (Date.now() - Number(ts) > 30 * 24 * 60 * 60 * 1000) return null;
     const expected = crypto.createHmac('sha256', TOKEN_SECRET).update(`${businessId}:${ts}`).digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+    // Guard against odd-length or non-hex sig before timingSafeEqual
+    const sigBuf = Buffer.from(sig, 'hex');
+    const expBuf = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length) return null;
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
     return businessId;
   } catch {
     return null;
@@ -753,121 +713,198 @@ function verifyToken(token) {
 }
 
 function authMiddleware(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+  const token      = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
   const businessId = token ? verifyToken(token) : null;
   if (!businessId) return res.status(401).json({ error: 'Unauthorized' });
   req.businessId = businessId;
   next();
 }
 
-// POST /api/auth/login — email magic-link style login
-app.post('/api/auth/login', async (req, res) => {
+// Step 1 — request OTP
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required.' });
 
-  const { data: business, error } = await supabase
+  const { data: business } = await supabase
+    .from('businesses')
+    .select('id, email')
+    .eq('email', email.toLowerCase().trim())
+    .single();
+
+  // Always respond the same way to prevent account enumeration
+  if (!business) {
+    return res.json({ success: true, message: 'If that email is registered, a code has been sent.' });
+  }
+
+  // Generate 6-digit OTP
+  const otp     = String(crypto.randomInt(100000, 999999));
+  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+
+  // Invalidate previous unused OTPs for this email
+  await supabase.from('auth_otps').update({ used: true }).eq('email', business.email).eq('used', false);
+
+  await supabase.from('auth_otps').insert({ email: business.email, otp, expires_at: expires });
+
+  // Send OTP email
+  await sendOTPEmail(business.email, otp);
+
+  console.log(`[auth] OTP sent to ${business.email}`);
+  res.json({ success: true, message: 'A 6-digit code has been sent to your email.' });
+});
+
+// Step 2 — verify OTP → issue token
+app.post('/api/auth/verify', authLimiter, async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) return res.status(400).json({ error: 'Email and code are required.' });
+
+  const { data: record } = await supabase
+    .from('auth_otps')
+    .select('*')
+    .eq('email', email.toLowerCase().trim())
+    .eq('otp', String(otp).trim())
+    .eq('used', false)
+    .gte('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!record) {
+    return res.status(401).json({ error: 'Invalid or expired code. Please request a new one.' });
+  }
+
+  // Mark used
+  await supabase.from('auth_otps').update({ used: true }).eq('id', record.id);
+
+  const { data: business } = await supabase
     .from('businesses')
     .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number')
     .eq('email', email.toLowerCase().trim())
     .single();
 
-  if (error || !business) {
-    // Return generic message to avoid account enumeration
-    return res.json({ success: true, message: 'If that email is registered, a link has been sent.' });
-  }
+  if (!business) return res.status(404).json({ error: 'Account not found.' });
 
   const token = signToken(business.id);
+  console.log(`[auth] login verified: ${business.email}`);
   res.json({ success: true, token, business });
 });
 
-// GET /api/dashboard — authenticated data
+async function sendOTPEmail(email, otp) {
+  if (!process.env.RESEND_API_KEY) {
+    console.log(`[auth] OTP for ${email}: ${otp}`);  // dev fallback
+    return;
+  }
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from:    `MissedCall <hello@${process.env.EMAIL_DOMAIN || 'missedcall.io'}>`,
+        to:      email,
+        subject: `Your MissedCall.io login code: ${otp}`,
+        html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+          <h2 style="color:#ff5c00">Your login code</h2>
+          <p style="font-size:48px;font-weight:bold;letter-spacing:12px;text-align:center;margin:24px 0">${otp}</p>
+          <p style="color:#666;text-align:center">This code expires in 10 minutes. Don't share it with anyone.</p>
+        </div>`
+      })
+    });
+  } catch (err) {
+    console.error('[auth] OTP email failed:', err.message);
+  }
+}
+
+// =============================================================
+//  DASHBOARD DATA
+// =============================================================
 app.get('/api/dashboard', authMiddleware, async (req, res) => {
   const { businessId } = req;
+  const page  = Math.max(0, parseInt(req.query.page  || '0'));
+  const limit = 200;
 
   const [bizResult, leadsResult, callsResult, apptsResult] = await Promise.all([
     supabase.from('businesses')
       .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, created_at')
       .eq('id', businessId).single(),
-    supabase.from('leads').select('*')
-      .eq('business_id', businessId).order('received_at', { ascending: false }).limit(200),
-    supabase.from('calls').select('*')
-      .eq('business_id', businessId).order('started_at', { ascending: false }).limit(200),
-    supabase.from('appointments').select('*')
-      .eq('business_id', businessId).order('appointment_time', { ascending: false }).limit(200),
+    supabase.from('leads').select('*', { count: 'exact' })
+      .eq('business_id', businessId).order('received_at', { ascending: false })
+      .range(page * limit, page * limit + limit - 1),
+    supabase.from('calls').select('*', { count: 'exact' })
+      .eq('business_id', businessId).order('started_at', { ascending: false })
+      .range(page * limit, page * limit + limit - 1),
+    supabase.from('appointments').select('*', { count: 'exact' })
+      .eq('business_id', businessId).order('appointment_time', { ascending: false })
+      .range(page * limit, page * limit + limit - 1),
   ]);
 
   if (bizResult.error) return res.status(500).json({ error: bizResult.error.message });
 
-  const leads = leadsResult.data || [];
-  const calls = callsResult.data || [];
-  const appointments = apptsResult.data || [];
+  const leads       = leadsResult.data       || [];
+  const calls       = callsResult.data       || [];
+  const appointments = apptsResult.data      || [];
 
-  // Detect returning callers — phones seen more than once
   const phoneCounts = {};
-  for (const l of leads) {
-    if (l.phone) phoneCounts[l.phone] = (phoneCounts[l.phone] || 0) + 1;
-  }
+  for (const l of leads) if (l.phone) phoneCounts[l.phone] = (phoneCounts[l.phone] || 0) + 1;
 
-  const leadsWithReturning = leads.map(l => ({
-    ...l,
-    returning: l.phone && phoneCounts[l.phone] > 1
-  }));
+  const leadsWithReturning = leads.map(l => ({ ...l, returning: l.phone && phoneCounts[l.phone] > 1 }));
 
-  // Stats
   const today = new Date().toISOString().slice(0, 10);
   const stats = {
-    totalLeads:      leads.length,
-    totalCalls:      calls.length,
-    leadsToday:      leads.filter(l => l.received_at?.startsWith(today)).length,
-    callsToday:      calls.filter(c => c.started_at?.startsWith(today)).length,
+    totalLeads:       leadsResult.count      ?? leads.length,
+    totalCalls:       callsResult.count      ?? calls.length,
+    totalAppointments:apptsResult.count      ?? appointments.length,
+    leadsToday:       leads.filter(l => l.received_at?.startsWith(today)).length,
+    callsToday:       calls.filter(c => c.started_at?.startsWith(today)).length,
     returningCallers: Object.values(phoneCounts).filter(n => n > 1).length,
-    avgDuration:     calls.length
-      ? Math.round(calls.reduce((s, c) => s + (c.duration_seconds || 0), 0) / calls.length)
-      : 0,
+    avgDuration:      calls.length ? Math.round(calls.reduce((s, c) => s + (c.duration_seconds || 0), 0) / calls.length) : 0,
   };
 
-  res.json({ business: bizResult.data, leads: leadsWithReturning, calls, appointments, stats });
+  res.json({
+    business:    bizResult.data,
+    leads:       leadsWithReturning,
+    calls,
+    appointments,
+    stats,
+    pagination: {
+      page,
+      limit,
+      totalLeads:       leadsResult.count  ?? leads.length,
+      totalCalls:       callsResult.count  ?? calls.length,
+      totalAppointments:apptsResult.count  ?? appointments.length,
+    }
+  });
 });
 
 // =============================================================
-//  ADMIN ENDPOINTS (protected by ADMIN_KEY)
+//  ADMIN ENDPOINTS — header-only key, never query param
 // =============================================================
 function adminAuth(req, res, next) {
-  const key = req.headers['x-admin-key'] || req.query.adminKey;
-  if (!key || key !== process.env.ADMIN_KEY) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
+  const key = req.headers['x-admin-key'];  // header only — not query param
+  if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
   next();
 }
 
 app.get('/admin/businesses', adminAuth, async (_req, res) => {
-  const { data, error } = await supabase
-    .from('businesses').select('*')
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('businesses').select('*').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ total: data.length, businesses: data });
 });
 
 app.get('/admin/leads/:businessId', adminAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('leads').select('*')
-    .eq('business_id', req.params.businessId)
-    .order('received_at', { ascending: false });
+  const { data, error } = await supabase.from('leads').select('*')
+    .eq('business_id', req.params.businessId).order('received_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ total: data.length, leads: data });
 });
 
 app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('calls').select('*')
-    .eq('business_id', req.params.businessId)
-    .order('started_at', { ascending: false });
+  const { data, error } = await supabase.from('calls').select('*')
+    .eq('business_id', req.params.businessId).order('started_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ total: data.length, calls: data });
 });
 
 app.get('/health', (_req, res) => res.json({
-  status:   'ok',
+  status:  'ok',
   supabase: !!process.env.SUPABASE_URL,
   vapi:     !!process.env.VAPI_API_KEY,
   twilio:   !!process.env.TWILIO_ACCOUNT_SID,
@@ -876,40 +913,42 @@ app.get('/health', (_req, res) => res.json({
 }));
 
 // =============================================================
-//  24-HOUR APPOINTMENT REMINDER POLLER (runs every 5 minutes)
+//  REMINDER POLLER — distributed-safe via optimistic DB lock
 // =============================================================
 async function runReminderPoller() {
+  if (!process.env.TWILIO_ACCOUNT_SID) return;
   try {
-    const now      = new Date();
-    const from     = new Date(now.getTime() + 23 * 60 * 60 * 1000).toISOString();
-    const to       = new Date(now.getTime() + 25 * 60 * 60 * 1000).toISOString();
+    const now  = new Date();
+    const from = new Date(now.getTime() + 23 * 60 * 60 * 1000).toISOString();
+    const to   = new Date(now.getTime() + 25 * 60 * 60 * 1000).toISOString();
 
-    const { data: appts, error } = await supabase
+    const { data: appts } = await supabase
       .from('appointments')
-      .select('*, businesses(business_name, mobile_number, biz_address, plan)')
+      .select('*, businesses(business_name, mobile_number, biz_address)')
       .eq('reminder_sent', false)
       .eq('status', 'confirmed')
       .gte('appointment_time', from)
       .lte('appointment_time', to);
 
-    if (error) { console.error('Reminder poller error:', error.message); return; }
     if (!appts || appts.length === 0) return;
-
-    console.log(`🔔 Reminder poller: ${appts.length} reminder(s) to send`);
+    console.log(`[reminder] ${appts.length} to send`);
 
     for (const appt of appts) {
-      const business = appt.businesses;
-      if (!business) continue;
-
-      await sendAppointmentReminder(business, appt);
-
-      await supabase
+      // Optimistic lock — only proceeds if another instance hasn't already claimed it
+      const { count } = await supabase
         .from('appointments')
         .update({ reminder_sent: true })
-        .eq('id', appt.id);
+        .eq('id', appt.id)
+        .eq('reminder_sent', false)  // condition: still unset
+        .select('id', { count: 'exact', head: true });
+
+      if (count === 0) continue; // another instance got there first
+
+      const business = appt.businesses;
+      if (business) await sendAppointmentReminder(business, appt);
     }
   } catch (err) {
-    console.error('Reminder poller exception:', err.message);
+    console.error('[reminder] poller error:', err.message);
   }
 }
 
@@ -918,15 +957,16 @@ setInterval(runReminderPoller, 5 * 60 * 1000);
 // =============================================================
 //  START
 // =============================================================
-process.on('SIGTERM',             () => process.exit(0));
-process.on('uncaughtException',   (e) => console.error('Uncaught:',   e.message));
-process.on('unhandledRejection',  (e) => console.error('Unhandled:',  e.message));
+process.on('SIGTERM', () => process.exit(0));
+process.on('uncaughtException',  (e) => { console.error('[fatal] uncaught:', e.message); process.exit(1); });
+process.on('unhandledRejection', (e) => { console.error('[fatal] unhandled:', e?.message || e); process.exit(1); });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`\n🎙️  MissedCall.io running on :${PORT}`);
-  console.log(`   Supabase: ${process.env.SUPABASE_URL        ? '✅' : '❌ MISSING'}`);
-  console.log(`   Vapi:     ${process.env.VAPI_API_KEY        ? '✅' : '⚠️  not set'}`);
-  console.log(`   Twilio:   ${process.env.TWILIO_ACCOUNT_SID  ? '✅' : '⚠️  not set'}`);
-  console.log(`   Email:    ${process.env.RESEND_API_KEY      ? '✅' : '⚠️  not set'}\n`);
+  console.log(`\nMissedCall.io :${PORT}`);
+  console.log(`  Supabase ${process.env.SUPABASE_URL         ? '✓' : '✗ MISSING'}`);
+  console.log(`  Vapi     ${process.env.VAPI_API_KEY         ? '✓' : '- not set'}`);
+  console.log(`  Twilio   ${process.env.TWILIO_ACCOUNT_SID   ? '✓' : '- not set'}`);
+  console.log(`  Email    ${process.env.RESEND_API_KEY       ? '✓' : '- not set'}`);
+  console.log(`  Webhook  ${process.env.VAPI_WEBHOOK_SECRET  ? '✓' : '- not set (unsecured)'}\n`);
 });
