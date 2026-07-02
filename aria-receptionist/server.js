@@ -69,7 +69,7 @@ app.post('/signup', async (req, res) => {
         name:           `${firstName} ${lastName}`,
         email,
         business_name:  businessName,
-        mobile_number:  mobileNumber,
+        mobile_number:  normalizePhone(mobileNumber),
         industry:       industry  || 'General business',
         biz_hours:      bizHours  || 'Monday to Friday 8am–6pm',
         biz_address:    bizAddress || '',
@@ -95,7 +95,7 @@ app.post('/signup', async (req, res) => {
     if (process.env.VAPI_API_KEY) {
       try {
         assistantId = await createVapiAssistant(business);
-        phoneNumber  = await assignPhoneNumber(assistantId);
+        phoneNumber  = await assignPhoneNumber(assistantId, business.mobile_number);
       } catch (vapiErr) {
         console.warn('Vapi setup failed:', vapiErr.message);
       }
@@ -283,7 +283,7 @@ CONVERSATION FLOW:
 - You already asked for their name in your first message. Once they give it, use it naturally.
 - Ask what you can help with today.
 - Listen, show empathy, answer any questions they have from the business info above.
-- Ask for their callback number.${canBook ? `
+- Ask for their callback number including country code if they haven't given it (e.g. "Could I get your number including the country code?"). Store it exactly as they say it.${canBook ? `
 - If they want to book an appointment: ask what service/package they need, then ask their preferred date and time. Confirm: "So that's [service] on [date] at [time] — shall I go ahead and book that?" Once they confirm, call book_appointment with their name, phone, service, and the appointment_time in ISO 8601 format (e.g. 2025-07-15T14:00:00). After booking say: "Perfect [name], you're all booked in for [service] on [date] at [time]. You'll get a confirmation text now, and a reminder the day before."
 - If they don't want an appointment: collect name, issue, phone and use save_lead as normal.` : `
 - Once you have all three: "Perfect [name], I've got you noted down. Someone from ${business_name} will call you back on [number] shortly."
@@ -309,7 +309,32 @@ SPEAKING STYLE:
 // =============================================================
 //  ASSIGN PHONE NUMBER via Vapi
 // =============================================================
-async function assignPhoneNumber(assistantId) {
+// Derive a 2-letter country code from a mobile number in E.164 or local format.
+// Used when purchasing a Vapi/Twilio number so callers get a local number.
+function countryCodeFromPhone(phone) {
+  if (!phone) return 'US';
+  const e = normalizePhone(phone);
+  if (e.startsWith('+1'))  return 'US';
+  if (e.startsWith('+44')) return 'GB';
+  if (e.startsWith('+27')) return 'ZA';
+  if (e.startsWith('+52')) return 'MX';
+  if (e.startsWith('+61')) return 'AU';
+  if (e.startsWith('+64')) return 'NZ';
+  if (e.startsWith('+353'))return 'IE';
+  if (e.startsWith('+49')) return 'DE';
+  if (e.startsWith('+33')) return 'FR';
+  if (e.startsWith('+39')) return 'IT';
+  if (e.startsWith('+34')) return 'ES';
+  if (e.startsWith('+31')) return 'NL';
+  if (e.startsWith('+55')) return 'BR';
+  if (e.startsWith('+91')) return 'IN';
+  if (e.startsWith('+65')) return 'SG';
+  if (e.startsWith('+971'))return 'AE';
+  return 'US'; // default fallback
+}
+
+async function assignPhoneNumber(assistantId, ownerPhone) {
+  const country = countryCodeFromPhone(ownerPhone);
   try {
     const res = await fetch('https://api.vapi.ai/phone-number', {
       method: 'POST',
@@ -322,6 +347,7 @@ async function assignPhoneNumber(assistantId) {
         twilioAccountSid:  process.env.TWILIO_ACCOUNT_SID,
         twilioAuthToken:   process.env.TWILIO_AUTH_TOKEN,
         assistantId,
+        ...(country !== 'US' && { country }), // Vapi accepts ISO country code
       })
     });
 
@@ -454,6 +480,29 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
 }
 
 // =============================================================
+//  PHONE NORMALISATION — converts common formats to E.164
+//  Works for any country. Falls back to the raw string if it
+//  can't be confidently cleaned up (Twilio will reject invalid
+//  numbers with a clear error rather than silently miscrouting).
+// =============================================================
+function normalizePhone(raw) {
+  if (!raw) return raw;
+  // Strip everything except digits and leading +
+  let s = raw.trim().replace(/[\s\-().]/g, '');
+  // Already E.164
+  if (/^\+\d{7,15}$/.test(s)) return s;
+  // Has + but extra chars were stripped above — recheck
+  if (s.startsWith('+')) return s;
+  // Strip leading 00 (international dialling prefix) → +
+  if (s.startsWith('00')) return '+' + s.slice(2);
+  // Strip leading trunk zero for common markets, but only if we
+  // have a country code hint from the business record — otherwise
+  // leave as-is so Twilio can reject clearly rather than mis-route.
+  // Without a hint we can't know if 07911… is UK (+44) or SA (+27).
+  return s;
+}
+
+// =============================================================
 //  SAVE APPOINTMENT + SMS confirmation to caller
 // =============================================================
 async function saveAppointment(businessId, callId, call, { name, phone, service, appointment_time, notes }) {
@@ -517,6 +566,7 @@ async function saveAppointment(businessId, callId, call, { name, phone, service,
 // =============================================================
 async function sendAppointmentConfirmation(business, appt) {
   if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
+  appt = { ...appt, phone: normalizePhone(appt.phone) };
 
   const time    = formatApptTime(new Date(appt.appointment_time));
   const address = business.biz_address || 'our location';
@@ -536,6 +586,7 @@ async function sendAppointmentConfirmation(business, appt) {
 // =============================================================
 async function sendAppointmentReminder(business, appt) {
   if (!process.env.TWILIO_ACCOUNT_SID || !appt.phone) return;
+  appt = { ...appt, phone: normalizePhone(appt.phone) };
 
   const time    = formatApptTime(new Date(appt.appointment_time));
   const address = business.biz_address || 'our location';
@@ -571,6 +622,7 @@ function formatApptTime(date) {
 // =============================================================
 async function sendSMSToOwner(business, lead) {
   if (!process.env.TWILIO_ACCOUNT_SID || !business?.mobile_number) return;
+  business = { ...business, mobile_number: normalizePhone(business.mobile_number) };
 
   const time = new Date(lead.received_at).toLocaleString('en-US', {
     dateStyle: 'short',
