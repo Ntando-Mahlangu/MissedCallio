@@ -1,5 +1,5 @@
 // =============================================================
-//  MissedCall.io — Production SaaS Server
+//  MissedCallio — Production SaaS Server
 //  Vapi + Claude + ElevenLabs + Supabase + Twilio
 // =============================================================
 
@@ -199,7 +199,7 @@ app.post('/signup', signupLimiter, async (req, res) => {
     if (process.env.TWILIO_ACCOUNT_SID && process.env.OWNER_PHONE) {
       await sendSMS(
         process.env.OWNER_PHONE,
-        `New MissedCall signup!\nBusiness: ${businessName}\nPlan: ${plan || 'growth'}\nContact: ${normalizePhone(mobileNumber)}`
+        `New MissedCallio signup!\nBusiness: ${businessName}\nPlan: ${plan || 'growth'}\nContact: ${normalizePhone(mobileNumber)}`
       );
     }
 
@@ -652,7 +652,7 @@ function formatApptTime(date) {
 async function sendWelcomeEmail(business, phoneNumber) {
   if (!process.env.RESEND_API_KEY) return;
   const instructions = phoneNumber
-    ? `Your MissedCall.io number is: <strong>${phoneNumber}</strong><br/><br/>
+    ? `Your MissedCallio number is: <strong>${phoneNumber}</strong><br/><br/>
        <strong>Activate in 30 seconds:</strong><br/>
        Go to your phone settings → Call Forwarding → Forward to <strong>${phoneNumber}</strong>`
     : `Our team will contact you within 24 hours to complete your setup.`;
@@ -663,15 +663,15 @@ async function sendWelcomeEmail(business, phoneNumber) {
       body: JSON.stringify({
         from:    `MissedCall <hello@${process.env.EMAIL_DOMAIN || 'missedcall.io'}>`,
         to:      business.email,
-        subject: `You're live on MissedCall.io!`,
+        subject: `You're live on MissedCallio!`,
         html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
-          <h2 style="color:#ff5c00">Welcome to MissedCall.io!</h2>
+          <h2 style="color:#ff5c00">Welcome to MissedCallio!</h2>
           <p>Hi ${business.name},</p>
           <p>Your AI receptionist is set up for <strong>${business.business_name}</strong>.</p>
           <br/>${instructions}<br/><br/>
           <p>You'll get an SMS at <strong>${business.mobile_number}</strong> every time Aria captures a lead.</p>
           <p>Your <strong>7-day free trial</strong> starts now.</p>
-          <br/><p style="color:#888">— The MissedCall.io Team</p>
+          <br/><p style="color:#888">— The MissedCallio Team</p>
         </div>`
       })
     });
@@ -800,7 +800,7 @@ async function sendOTPEmail(email, otp) {
       body: JSON.stringify({
         from:    `MissedCall <hello@${process.env.EMAIL_DOMAIN || 'missedcall.io'}>`,
         to:      email,
-        subject: `Your MissedCall.io login code: ${otp}`,
+        subject: `Your MissedCallio login code: ${otp}`,
         html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00">Your login code</h2>
           <p style="font-size:48px;font-weight:bold;letter-spacing:12px;text-align:center;margin:24px 0">${otp}</p>
@@ -814,6 +814,23 @@ async function sendOTPEmail(email, otp) {
 }
 
 // =============================================================
+//  SETTINGS UPDATE
+// =============================================================
+app.post('/api/settings', authMiddleware, async (req, res) => {
+  const { businessId } = req;
+  const { bizHours, bizAddress, bizPricing, mobileNumber } = req.body;
+  const updates = {};
+  if (bizHours    !== undefined) updates.biz_hours   = bizHours;
+  if (bizAddress  !== undefined) updates.biz_address = bizAddress;
+  if (bizPricing  !== undefined) updates.biz_pricing = bizPricing;
+  if (mobileNumber !== undefined) updates.mobile_number = normalizePhone(mobileNumber) || mobileNumber;
+  if (Object.keys(updates).length === 0) return res.json({ success: true });
+  const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+// =============================================================
 //  DASHBOARD DATA
 // =============================================================
 app.get('/api/dashboard', authMiddleware, async (req, res) => {
@@ -821,9 +838,11 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
   const page  = Math.max(0, parseInt(req.query.page  || '0'));
   const limit = 200;
 
-  const [bizResult, leadsResult, callsResult, apptsResult] = await Promise.all([
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -834,28 +853,36 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
     supabase.from('appointments').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('appointment_time', { ascending: false })
       .range(page * limit, page * limit + limit - 1),
+    // Returning callers = phones that appear more than once (SQL DISTINCT count)
+    supabase.rpc('count_returning_callers', { biz_id: businessId }),
+    // Today's counts via DB filter
+    Promise.all([
+      supabase.from('leads').select('id', { count: 'exact', head: true })
+        .eq('business_id', businessId).gte('received_at', today),
+      supabase.from('calls').select('id', { count: 'exact', head: true })
+        .eq('business_id', businessId).gte('started_at', today),
+    ]),
   ]);
 
   if (bizResult.error) return res.status(500).json({ error: bizResult.error.message });
 
-  const leads       = leadsResult.data       || [];
-  const calls       = callsResult.data       || [];
-  const appointments = apptsResult.data      || [];
+  const leads        = leadsResult.data  || [];
+  const calls        = callsResult.data  || [];
+  const appointments = apptsResult.data  || [];
 
   const phoneCounts = {};
   for (const l of leads) if (l.phone) phoneCounts[l.phone] = (phoneCounts[l.phone] || 0) + 1;
-
   const leadsWithReturning = leads.map(l => ({ ...l, returning: l.phone && phoneCounts[l.phone] > 1 }));
 
-  const today = new Date().toISOString().slice(0, 10);
+  const [leadsToday, callsToday] = statResult;
   const stats = {
-    totalLeads:       leadsResult.count      ?? leads.length,
-    totalCalls:       callsResult.count      ?? calls.length,
-    totalAppointments:apptsResult.count      ?? appointments.length,
-    leadsToday:       leads.filter(l => l.received_at?.startsWith(today)).length,
-    callsToday:       calls.filter(c => c.started_at?.startsWith(today)).length,
-    returningCallers: Object.values(phoneCounts).filter(n => n > 1).length,
-    avgDuration:      calls.length ? Math.round(calls.reduce((s, c) => s + (c.duration_seconds || 0), 0) / calls.length) : 0,
+    totalLeads:        leadsResult.count       ?? leads.length,
+    totalCalls:        callsResult.count       ?? calls.length,
+    totalAppointments: apptsResult.count       ?? appointments.length,
+    leadsToday:        leadsToday.count        ?? 0,
+    callsToday:        callsToday.count        ?? 0,
+    returningCallers:  returningResult.data    ?? Object.values(phoneCounts).filter(n => n > 1).length,
+    avgDuration:       calls.length ? Math.round(calls.reduce((s, c) => s + (c.duration_seconds || 0), 0) / calls.length) : 0,
   };
 
   res.json({
@@ -955,6 +982,63 @@ async function runReminderPoller() {
 setInterval(runReminderPoller, 5 * 60 * 1000);
 
 // =============================================================
+//  TRIAL WARNING POLLER — sends day-5 warning email once
+// =============================================================
+async function runTrialWarningPoller() {
+  if (!process.env.RESEND_API_KEY) return;
+  try {
+    const now        = new Date();
+    const windowFrom = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();  // ~48h from now
+    const windowTo   = new Date(now.getTime() + 2.25 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Find trials expiring in ~48h that haven't been warned yet
+    // We use a simple approach: trial_ends_at in window and status still 'trial'
+    const { data: businesses } = await supabase
+      .from('businesses')
+      .select('id, name, email, business_name, plan')
+      .eq('status', 'trial')
+      .gte('trial_ends_at', windowFrom)
+      .lte('trial_ends_at', windowTo);
+
+    if (!businesses || businesses.length === 0) return;
+
+    for (const biz of businesses) {
+      try {
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from:    `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            to:      biz.email,
+            subject: `Your MissedCallio trial ends in 2 days`,
+            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+              <h2 style="color:#ff5c00">Your free trial ends in 2 days</h2>
+              <p>Hi ${biz.name},</p>
+              <p>Your 7-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 2 days.</p>
+              <p>To keep Aria answering your calls, add a payment method before your trial ends.</p>
+              <br/>
+              <a href="${process.env.SERVER_URL || 'https://missedcallio-production.up.railway.app'}/dashboard"
+                 style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500">
+                Manage my account →
+              </a>
+              <br/><br/>
+              <p style="color:#888">— The MissedCallio Team</p>
+            </div>`
+          })
+        });
+        console.log(`[trial-warning] sent to ${biz.email}`);
+      } catch (err) {
+        console.error(`[trial-warning] failed for ${biz.email}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[trial-warning] poller error:', err.message);
+  }
+}
+
+setInterval(runTrialWarningPoller, 60 * 60 * 1000);  // hourly
+
+// =============================================================
 //  START
 // =============================================================
 process.on('SIGTERM', () => process.exit(0));
@@ -963,7 +1047,7 @@ process.on('unhandledRejection', (e) => { console.error('[fatal] unhandled:', e?
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`\nMissedCall.io :${PORT}`);
+  console.log(`\nMissedCallio ✓ :${PORT}`);
   console.log(`  Supabase ${process.env.SUPABASE_URL         ? '✓' : '✗ MISSING'}`);
   console.log(`  Vapi     ${process.env.VAPI_API_KEY         ? '✓' : '- not set'}`);
   console.log(`  Twilio   ${process.env.TWILIO_ACCOUNT_SID   ? '✓' : '- not set'}`);

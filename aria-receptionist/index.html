@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>MissedCall — AI Receptionist for Small Businesses</title>
+<title>MissedCallio — AI Receptionist for Small Businesses</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -476,7 +476,10 @@ footer {
 .footer-logo span { color: var(--accent); }
 
 @media(max-width:768px){
-  nav { padding: 16px 20px; }
+  nav { padding: 14px 20px; gap: 10px; }
+  nav a:not(.nav-cta) { display: none; }
+  .nav-cta { margin-left: auto; padding: 8px 16px; font-size: 13px; }
+  .logo { font-size: 19px; }
   .hero { padding: 100px 20px 60px; }
   .proof { padding: 20px; gap: 24px; }
   .proof-divider { display: none; }
@@ -495,7 +498,7 @@ footer {
 
 <!-- NAV -->
 <nav>
-  <div class="logo">Missed<span>Call</span></div>
+  <div class="logo">MissedCall<span>io</span></div>
   <a href="#how">How it works</a>
   <a href="#pricing">Pricing</a>
   <a href="#signup" class="nav-cta">Start free trial</a>
@@ -505,7 +508,7 @@ footer {
 <section class="hero">
   <div class="hero-badge">Now with ElevenLabs Sarah voice</div>
   <h1>Never miss a<br/>customer call <em>again</em></h1>
-  <p class="hero-sub">MissedCall answers every call, collects the lead, and texts you instantly — so you can focus on the job, not the phone.</p>
+  <p class="hero-sub">MissedCallio answers every call, collects the lead, and texts you instantly — so you can focus on the job, not the phone.</p>
   <div class="hero-actions">
     <a href="#signup" class="btn-primary">Start your free trial</a>
     <a href="#how" class="btn-secondary">See how it works</a>
@@ -540,7 +543,7 @@ footer {
 <section class="section" id="how">
   <div class="section-tag">How it works</div>
   <h2 class="section-title">Up and running<br/>in 5 minutes</h2>
-  <p class="section-sub">No technical skills needed. Just forward your number and MissedCall handles the rest.</p>
+  <p class="section-sub">No technical skills needed. Just forward your number and MissedCallio handles the rest.</p>
 
   <div class="steps">
     <div class="step">
@@ -550,12 +553,12 @@ footer {
     </div>
     <div class="step">
       <div class="step-num">02</div>
-      <div class="step-title">Forward your existing number to MissedCall</div>
+      <div class="step-title">Forward your existing number to MissedCallio</div>
       <div class="step-desc">One simple setting on your phone. Your number stays the same — customers never notice a thing.</div>
     </div>
     <div class="step">
       <div class="step-num">03</div>
-      <div class="step-title">MissedCall answers every call</div>
+      <div class="step-title">MissedCallio answers every call</div>
       <div class="step-desc">Aria picks up in 2 seconds, has a real conversation, and collects the lead.</div>
     </div>
     <div class="step">
@@ -607,7 +610,7 @@ footer {
       <div class="phone-mockup">
         <div class="phone-top">
           <div class="phone-caller">Incoming call</div>
-          <div class="phone-sub">Forwarded to MissedCall · Aria answering</div>
+          <div class="phone-sub">Forwarded to MissedCallio · Aria answering</div>
           <div class="phone-wave">
             <div class="wave-bar"></div><div class="wave-bar"></div>
             <div class="wave-bar"></div><div class="wave-bar"></div>
@@ -763,16 +766,16 @@ footer {
     <div class="success-msg" id="success-msg">
       <div class="success-icon">🎉</div>
       <h3>You're in!</h3>
-      <p id="success-detail">Check your email for setup instructions. Aria will be answering your calls within minutes.<br/><br/>Welcome to MissedCall.io!</p>
+      <p id="success-detail">Check your email for setup instructions. Aria will be answering your calls within minutes.<br/><br/>Welcome to MissedCallio!</p>
     </div>
   </div>
 </section>
 
 <!-- FOOTER -->
 <footer>
-  <div class="footer-logo">Missed<span>Call</span></div>
-  <div>© 2026 MissedCall.io. All rights reserved.</div>
-  <div>hello@missedcall.io</div>
+  <div class="footer-logo">MissedCall<span>io</span></div>
+  <div>© 2026 MissedCallio. All rights reserved.</div>
+  <div>hello@missedcallio.io</div>
 </footer>
 
 <script>
@@ -819,10 +822,10 @@ async function handleSignup(e) {
     document.getElementById('signup-form').style.display = 'none';
     if (data.missedcallNumber) {
       document.getElementById('success-detail').innerHTML =
-        `Your MissedCall number is <strong>${data.missedcallNumber}</strong>.<br/><br/>
+        `Your MissedCallio number is <strong>${data.missedcallNumber}</strong>.<br/><br/>
          Go to your phone settings and forward your calls to that number.<br/>
          Aria will answer every call from this moment on.<br/><br/>
-         Welcome to MissedCall! 🎙️`;
+         Welcome to MissedCallio! 🎙️`;
     }
     document.getElementById('success-msg').style.display = 'block';
 

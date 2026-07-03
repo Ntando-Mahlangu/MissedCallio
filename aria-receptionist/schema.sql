@@ -71,3 +71,15 @@ create index if not exists leads_business_idx        on leads (business_id, rece
 create index if not exists calls_business_idx        on calls (business_id, started_at desc);
 create index if not exists appointments_business_idx on appointments (business_id, appointment_time desc);
 create index if not exists appointments_reminder_idx on appointments (appointment_time, reminder_sent) where reminder_sent = false;
+create index if not exists leads_phone_idx        on leads (business_id, phone);
+create index if not exists appointments_phone_idx on appointments (business_id, phone);
+
+-- SQL function used by /api/dashboard to count returning callers accurately
+create or replace function count_returning_callers(biz_id uuid)
+returns bigint language sql stable as $$
+  select count(*) from (
+    select phone from leads
+    where business_id = biz_id and phone is not null
+    group by phone having count(*) > 1
+  ) sub;
+$$;

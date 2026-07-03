@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>MissedCall — Dashboard</title>
+<title>MissedCallio — Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -167,7 +167,7 @@ tbody tr:last-child td{border-bottom:none}
 <!-- LOGIN -->
 <div id="login-screen">
   <div class="login-card">
-    <div class="login-logo">Missed<span>Call</span></div>
+    <div class="login-logo">MissedCall<span>io</span></div>
 
     <!-- Step 1: email -->
     <div id="login-step-email">
@@ -195,7 +195,7 @@ tbody tr:last-child td{border-bottom:none}
 <!-- APP -->
 <div id="app">
   <header>
-    <div class="h-logo">Missed<span>Call</span></div>
+    <div class="h-logo">MissedCall<span>io</span></div>
     <div class="h-biz" id="h-biz-name"></div>
     <div class="h-right">
       <span class="plan-badge" id="plan-badge"></span>
@@ -342,6 +342,33 @@ tbody tr:last-child td{border-bottom:none}
             <div class="info-card-title">Subscription</div>
             <div id="sub-info-rows"></div>
           </div>
+        </div>
+
+        <!-- SETTINGS EDIT FORM -->
+        <div class="info-card" style="margin-top:20px">
+          <div class="info-card-title" style="margin-bottom:16px">Edit Settings</div>
+          <form id="settings-form" onsubmit="saveSettings(event)" style="display:flex;flex-direction:column;gap:14px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div class="field">
+                <label class="login-label">Business hours</label>
+                <input id="s-hours" class="login-input" type="text" placeholder="Mon–Fri 8am–6pm"/>
+              </div>
+              <div class="field">
+                <label class="login-label">Business address</label>
+                <input id="s-address" class="login-input" type="text" placeholder="12 Main St, Austin TX"/>
+              </div>
+            </div>
+            <div class="field">
+              <label class="login-label">Pricing (what Aria tells callers)</label>
+              <input id="s-pricing" class="login-input" type="text" placeholder="Call-outs from $150, free quotes"/>
+            </div>
+            <div class="field">
+              <label class="login-label">Mobile number (for SMS alerts)</label>
+              <input id="s-mobile" class="login-input" type="tel" placeholder="+1 555 000 0000"/>
+            </div>
+            <div id="settings-msg" style="display:none;font-size:13px;padding:10px 14px;border-radius:8px"></div>
+            <button type="submit" class="login-btn" id="settings-btn" style="max-width:200px">Save changes</button>
+          </form>
         </div>
       </div>
 
@@ -652,7 +679,7 @@ function renderInfo() {
     ['Owner', b.name],
     ['Business', b.business_name],
     ['Email', b.email],
-    ['MissedCall Number', b.missedcall_number || 'Pending setup'],
+    ['MissedCallio Number', b.missedcall_number || 'Pending setup'],
     ['Alerts sent to', b.mobile_number],
     ['Member since', fmtDate(b.created_at)],
   ].map(([k, v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(v||'—')}</span></div>`).join('');
@@ -663,6 +690,47 @@ function renderInfo() {
     ['Status', (b.status||'trial').replace('_',' ')],
     ['Trial ends', trialEnd],
   ].map(([k, v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(v||'—')}</span></div>`).join('');
+
+  // Pre-populate settings form
+  document.getElementById('s-hours').value   = b.biz_hours   || '';
+  document.getElementById('s-address').value = b.biz_address || '';
+  document.getElementById('s-pricing').value = b.biz_pricing || '';
+  document.getElementById('s-mobile').value  = b.mobile_number || '';
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  const btn = document.getElementById('settings-btn');
+  const msg = document.getElementById('settings-msg');
+  msg.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('mc_token')}` },
+      body: JSON.stringify({
+        bizHours:   document.getElementById('s-hours').value.trim(),
+        bizAddress: document.getElementById('s-address').value.trim(),
+        bizPricing: document.getElementById('s-pricing').value.trim(),
+        mobileNumber: document.getElementById('s-mobile').value.trim(),
+      })
+    });
+    const d = await r.json();
+    if (d.success) {
+      msg.textContent = 'Settings saved!';
+      msg.style.cssText = 'display:block;font-size:13px;padding:10px 14px;border-radius:8px;background:#e8faf0;color:#00c853';
+      await loadDashboard(true);
+    } else {
+      msg.textContent = d.error || 'Failed to save.';
+      msg.style.cssText = 'display:block;font-size:13px;padding:10px 14px;border-radius:8px;background:#fff0f0;color:#e53e3e';
+    }
+  } catch {
+    msg.textContent = 'Network error. Please try again.';
+    msg.style.cssText = 'display:block;font-size:13px;padding:10px 14px;border-radius:8px;background:#fff0f0;color:#e53e3e';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Save changes';
 }
 
 // ── TABS ──
