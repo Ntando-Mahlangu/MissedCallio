@@ -33,7 +33,7 @@ body {
 nav {
   position: fixed; top: 0; left: 0; right: 0; z-index: 100;
   padding: 18px 48px;
-  display: flex; align-items: center; gap: 16px;
+  display: flex; align-items: center; justify-content: space-between;
   background: rgba(250,250,248,0.92);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--gray-light);
@@ -43,19 +43,23 @@ nav {
   font-family: 'Syne', sans-serif;
   font-size: 22px; font-weight: 800;
   letter-spacing: -0.5px;
+  flex-shrink: 0;
 }
 .logo span { color: var(--accent); }
 
-nav a {
-  margin-left: auto;
+.nav-links {
+  display: flex; align-items: center; gap: 32px;
+}
+
+.nav-links a {
   font-size: 14px; color: var(--gray);
   text-decoration: none;
   transition: color 0.2s;
+  white-space: nowrap;
 }
-nav a:hover { color: var(--black); }
+.nav-links a:hover { color: var(--black); }
 
 .nav-cta {
-  margin-left: 24px;
   background: var(--black);
   color: var(--white) !important;
   padding: 9px 20px;
@@ -63,6 +67,7 @@ nav a:hover { color: var(--black); }
   font-size: 14px; font-weight: 500;
   text-decoration: none;
   transition: background 0.2s;
+  white-space: nowrap;
 }
 .nav-cta:hover { background: var(--accent) !important; }
 
@@ -461,6 +466,32 @@ h1 em {
 .success-msg p { color: #888; line-height: 1.6; }
 .success-icon { font-size: 48px; margin-bottom: 16px; }
 
+/* ── USE CASES ── */
+.use-cases {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 48px;
+}
+
+.use-case {
+  background: var(--surface);
+  border: 1.5px solid var(--gray-light);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.use-case:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.07); }
+
+.use-case-icon { font-size: 32px; margin-bottom: 14px; }
+.use-case-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 17px; font-weight: 700;
+  margin-bottom: 8px;
+  letter-spacing: -0.3px;
+}
+.use-case-desc { font-size: 14px; color: var(--gray); line-height: 1.6; }
+
 /* ── FOOTER ── */
 footer {
   padding: 40px 48px;
@@ -476,10 +507,10 @@ footer {
 .footer-logo span { color: var(--accent); }
 
 @media(max-width:768px){
-  nav { padding: 14px 20px; gap: 10px; }
-  nav a:not(.nav-cta) { display: none; }
-  .nav-cta { margin-left: auto; padding: 8px 16px; font-size: 13px; }
-  .logo { font-size: 19px; }
+  nav { padding: 14px 20px; }
+  .logo { font-size: 18px; }
+  .nav-links a:not(.nav-cta) { display: none; }
+  .nav-cta { padding: 8px 16px; font-size: 13px; }
   .hero { padding: 100px 20px 60px; }
   .proof { padding: 20px; gap: 24px; }
   .proof-divider { display: none; }
@@ -499,16 +530,19 @@ footer {
 <!-- NAV -->
 <nav>
   <div class="logo">MissedCall<span>io</span></div>
-  <a href="#how">How it works</a>
-  <a href="#pricing">Pricing</a>
-  <a href="#signup" class="nav-cta">Start free trial</a>
+  <div class="nav-links">
+    <a href="#who">Who it's for</a>
+    <a href="#how">How it works</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#signup" class="nav-cta">Start free trial</a>
+  </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="hero-badge">Now with ElevenLabs Sarah voice</div>
+  <div class="hero-badge">AI receptionist for businesses &amp; offices</div>
   <h1>Never miss a<br/>customer call <em>again</em></h1>
-  <p class="hero-sub">MissedCallio answers every call, collects the lead, and texts you instantly — so you can focus on the job, not the phone.</p>
+  <p class="hero-sub">MissedCallio answers every call, captures the lead or books the appointment, and alerts you instantly — whether you're a solo trader or running a full office.</p>
   <div class="hero-actions">
     <a href="#signup" class="btn-primary">Start your free trial</a>
     <a href="#how" class="btn-secondary">See how it works</a>
@@ -539,6 +573,34 @@ footer {
   </div>
 </div>
 
+<!-- WHO IT'S FOR -->
+<section class="section" id="who" style="padding-top:60px;padding-bottom:60px">
+  <div class="section-tag">Who it's for</div>
+  <h2 class="section-title">Built for any business<br/>that runs on calls</h2>
+  <div class="use-cases">
+    <div class="use-case">
+      <div class="use-case-icon">🔧</div>
+      <div class="use-case-title">Tradespeople</div>
+      <div class="use-case-desc">Plumbers, electricians, builders — Aria captures every lead while you're on the job, then texts you the details to call back and close.</div>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">🏥</div>
+      <div class="use-case-title">Health &amp; wellness clinics</div>
+      <div class="use-case-desc">Physios, dentists, salons — Aria books appointments directly into your schedule, sends confirmations, and reminds patients 24 hours before.</div>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">🏢</div>
+      <div class="use-case-title">Small offices</div>
+      <div class="use-case-desc">Law firms, accountants, letting agents — Aria acts as your front-of-house, answering overflow calls, routing enquiries, and never putting anyone on hold.</div>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">🛒</div>
+      <div class="use-case-title">Retail &amp; hospitality</div>
+      <div class="use-case-desc">Shops, restaurants, boutiques — handle booking enquiries, opening hours, and product questions automatically without pulling staff off the floor.</div>
+    </div>
+  </div>
+</section>
+
 <!-- HOW IT WORKS -->
 <section class="section" id="how">
   <div class="section-tag">How it works</div>
@@ -548,23 +610,23 @@ footer {
   <div class="steps">
     <div class="step">
       <div class="step-num">01</div>
-      <div class="step-title">Sign up & tell us about your business</div>
-      <div class="step-desc">Enter your business name, hours, and what you do. Takes 2 minutes.</div>
+      <div class="step-title">Sign up &amp; tell us about your business</div>
+      <div class="step-desc">Enter your business name, hours, services, and pricing. Takes 2 minutes. Works for solo traders and full offices alike.</div>
     </div>
     <div class="step">
       <div class="step-num">02</div>
-      <div class="step-title">Forward your existing number to MissedCallio</div>
-      <div class="step-desc">One simple setting on your phone. Your number stays the same — customers never notice a thing.</div>
+      <div class="step-title">Forward overflow calls to MissedCallio</div>
+      <div class="step-desc">Set your number to forward when busy or unanswered. Your number stays the same — callers never know the difference.</div>
     </div>
     <div class="step">
       <div class="step-num">03</div>
-      <div class="step-title">MissedCallio answers every call</div>
-      <div class="step-desc">Aria picks up in 2 seconds, has a real conversation, and collects the lead.</div>
+      <div class="step-title">Aria answers and handles the call</div>
+      <div class="step-desc">Picks up in 2 seconds, has a natural conversation, captures the lead or books the appointment on the spot.</div>
     </div>
     <div class="step">
       <div class="step-num">04</div>
-      <div class="step-title">You get an instant SMS</div>
-      <div class="step-desc">Name, issue, and callback number land on your phone the moment the call ends.</div>
+      <div class="step-title">You get an instant alert</div>
+      <div class="step-desc">Name, enquiry, and callback number land on your phone the moment the call ends. Appointments sync to your dashboard automatically.</div>
     </div>
   </div>
 </section>
@@ -573,7 +635,7 @@ footer {
 <section class="flow-section">
   <div class="flow-inner">
     <div class="section-tag" style="color:var(--accent)">Real conversations</div>
-    <h2 class="section-title" style="color:white">Aria sounds like<br/>a real receptionist</h2>
+    <h2 class="section-title" style="color:white">Aria sounds like<br/>your front desk</h2>
 
     <div class="flow-grid">
       <div class="flow-steps">
@@ -645,14 +707,14 @@ footer {
         <div class="card-plan">Starter</div>
         <div class="card-price"><sup>$</sup>97<span>/mo</span></div>
         <div class="card-trial">✓ 7-day free trial</div>
-        <div class="card-desc">Perfect for solo traders and micro businesses taking up to 100 calls a month.</div>
+        <div class="card-desc">Perfect for solo traders and small businesses up to 100 calls a month.</div>
         <ul class="card-features">
-          <li>AI answers every call</li>
-          <li>Collects name, issue & number</li>
-          <li>Instant SMS to your phone</li>
+          <li>AI answers every missed call</li>
+          <li>Captures name, issue &amp; number</li>
+          <li>Instant SMS alert to your phone</li>
           <li>Up to 100 calls/month</li>
           <li>Natural AI voice (Sarah)</li>
-          <li>Leads dashboard</li>
+          <li>Leads &amp; calls dashboard</li>
         </ul>
         <button class="card-btn secondary" onclick="document.getElementById('signup').scrollIntoView({behavior:'smooth'})">Start free trial</button>
       </div>
@@ -662,14 +724,14 @@ footer {
         <div class="card-plan">Growth</div>
         <div class="card-price"><sup>$</sup>197<span>/mo</span></div>
         <div class="card-trial">✓ 7-day free trial</div>
-        <div class="card-desc">For growing businesses that can't afford to miss a single lead.</div>
+        <div class="card-desc">For growing businesses and small offices that can't miss a single enquiry.</div>
         <ul class="card-features">
           <li>Everything in Starter</li>
           <li>Up to 500 calls/month</li>
-          <li>Custom AI persona & name</li>
-          <li>WhatsApp notifications</li>
-          <li>Priority lead alerts</li>
+          <li>Appointment booking &amp; reminders</li>
+          <li>Custom AI name &amp; persona</li>
           <li>Call recordings</li>
+          <li>Priority lead alerts</li>
         </ul>
         <button class="card-btn primary" onclick="document.getElementById('signup').scrollIntoView({behavior:'smooth'})">Start free trial</button>
       </div>
@@ -678,12 +740,12 @@ footer {
         <div class="card-plan">Pro</div>
         <div class="card-price"><sup>$</sup>497<span>/mo</span></div>
         <div class="card-trial">✓ 7-day free trial</div>
-        <div class="card-desc">For high-volume businesses and agencies managing multiple locations.</div>
+        <div class="card-desc">For offices and agencies managing high call volumes or multiple locations.</div>
         <ul class="card-features">
           <li>Everything in Growth</li>
           <li>Unlimited calls</li>
-          <li>Multiple numbers</li>
-          <li>Custom FAQ answers</li>
+          <li>Multiple phone numbers</li>
+          <li>Custom FAQ &amp; office-specific answers</li>
           <li>CRM integration</li>
           <li>Dedicated support</li>
         </ul>
@@ -698,7 +760,7 @@ footer {
   <div class="signup-inner">
     <div class="section-tag" style="color:var(--accent)">Get started</div>
     <h2 class="section-title" style="color:white;letter-spacing:-2px">Start your free trial</h2>
-    <p class="section-sub">7 days free. No credit card. Aria answers your first call within minutes of signing up.</p>
+    <p class="section-sub">7 days free. No credit card. Aria answers your first call within minutes — whether you're a tradesperson, clinic, or office.</p>
 
     <form class="signup-form" id="signup-form" onsubmit="handleSignup(event)">
       <div class="form-row">
