@@ -146,6 +146,26 @@ tbody tr:last-child td{border-bottom:none}
 .info-key{font-size:13px;color:var(--gray)}
 .info-val{font-size:13px;font-weight:500;text-align:right;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* ── ACTION BUTTON ── */
+.action-btn{
+  background:var(--accent);color:var(--white);border:none;border-radius:8px;
+  padding:7px 16px;font-size:13px;font-weight:500;font-family:'DM Sans',sans-serif;
+  cursor:pointer;transition:opacity .2s;
+}
+.action-btn:hover{opacity:.85}
+
+/* ── DATA TABLE (staff/team tabs use table.data-table) ── */
+table.data-table{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+table.data-table thead th{
+  background:var(--surface);font-size:11px;font-weight:600;color:var(--gray);
+  text-transform:uppercase;letter-spacing:.5px;padding:12px 16px;text-align:left;
+  border-bottom:1px solid var(--gray-light);white-space:nowrap;
+}
+table.data-table tbody tr{transition:background .15s}
+table.data-table tbody tr:hover{background:var(--surface)}
+table.data-table tbody td{padding:13px 16px;font-size:14px;border-bottom:1px solid #f0eeea;vertical-align:middle}
+table.data-table tbody tr:last-child td{border-bottom:none}
+
 /* ── LOADING ── */
 .spinner{width:36px;height:36px;border:3px solid var(--gray-light);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:60px auto}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -242,6 +262,8 @@ tbody tr:last-child td{border-bottom:none}
         <button class="tab-btn active" onclick="showTab('leads',this)">Missed Calls &amp; Leads</button>
         <button class="tab-btn" onclick="showTab('calls',this)">Call Log</button>
         <button class="tab-btn" id="tab-btn-appointments" onclick="showTab('appointments',this)">Appointments</button>
+        <button class="tab-btn" id="tab-btn-staff" onclick="showTab('staff',this)">Staff Directory</button>
+        <button class="tab-btn" onclick="showTab('team',this)">Team</button>
         <button class="tab-btn" onclick="showTab('info',this)">Account</button>
       </div>
 
@@ -330,6 +352,62 @@ tbody tr:last-child td{border-bottom:none}
         </div>
       </div>
 
+      <!-- STAFF TAB -->
+      <div id="tab-staff" style="display:none">
+        <div class="section-header">
+          <span class="section-title">Staff Directory</span>
+          <button class="action-btn" onclick="showAddStaff()">+ Add member</button>
+        </div>
+        <div id="add-staff-form" style="display:none;background:var(--white);border:1.5px solid var(--gray-light);border-radius:var(--radius);padding:20px;margin-bottom:20px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div><label class="login-label">Name *</label><input id="sf-name" class="login-input" type="text" placeholder="Sarah Johnson"/></div>
+            <div><label class="login-label">Role / Department</label><input id="sf-role" class="login-input" type="text" placeholder="Sales, Support, Manager…"/></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div><label class="login-label">Phone (for alerts)</label><input id="sf-phone" class="login-input" type="tel" placeholder="+1 555 000 0000"/></div>
+            <div><label class="login-label">Email (for alerts)</label><input id="sf-email" class="login-input" type="email" placeholder="sarah@company.com"/></div>
+          </div>
+          <div id="staff-form-msg" style="display:none;font-size:13px;padding:8px 12px;border-radius:8px;margin-bottom:12px"></div>
+          <div style="display:flex;gap:10px">
+            <button class="login-btn" style="max-width:160px" onclick="addStaffMember()">Add member</button>
+            <button onclick="document.getElementById('add-staff-form').style.display='none'" style="background:none;border:none;cursor:pointer;color:var(--gray)">Cancel</button>
+          </div>
+        </div>
+        <div id="staff-note" style="font-size:13px;color:var(--gray);margin-bottom:16px">
+          Pro plan only — Aria will look up and alert staff members when callers ask for them by name.
+        </div>
+        <div id="staff-table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th></th></tr></thead>
+            <tbody id="staff-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TEAM TAB -->
+      <div id="tab-team" style="display:none">
+        <div class="section-header">
+          <span class="section-title">Team Members</span>
+          <button class="action-btn" onclick="showInviteTeam()">+ Invite member</button>
+        </div>
+        <div id="invite-team-form" style="display:none;background:var(--white);border:1.5px solid var(--gray-light);border-radius:var(--radius);padding:20px;margin-bottom:20px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+            <div><label class="login-label">Email *</label><input id="tm-email" class="login-input" type="email" placeholder="colleague@company.com"/></div>
+            <div><label class="login-label">Name</label><input id="tm-name" class="login-input" type="text" placeholder="Optional"/></div>
+            <div><label class="login-label">Role</label><input id="tm-role" class="login-input" type="text" placeholder="Admin, Viewer…"/></div>
+          </div>
+          <div id="team-form-msg" style="display:none;font-size:13px;padding:8px 12px;border-radius:8px;margin-bottom:12px"></div>
+          <div style="display:flex;gap:10px">
+            <button class="login-btn" style="max-width:160px" onclick="inviteTeamMember()">Send invite</button>
+            <button onclick="document.getElementById('invite-team-form').style.display='none'" style="background:none;border:none;cursor:pointer;color:var(--gray)">Cancel</button>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Added</th><th></th></tr></thead>
+          <tbody id="team-tbody"></tbody>
+        </table>
+      </div>
+
       <!-- ACCOUNT TAB -->
       <div id="tab-info" style="display:none">
         <div class="section-title" style="margin-bottom:16px">Account Details</div>
@@ -365,6 +443,18 @@ tbody tr:last-child td{border-bottom:none}
             <div class="field">
               <label class="login-label">Mobile number (for SMS alerts)</label>
               <input id="s-mobile" class="login-input" type="tel" placeholder="+1 555 000 0000"/>
+            </div>
+            <div class="field">
+              <label class="login-label">Slack webhook URL (optional — get lead/appt pings in Slack)</label>
+              <input id="s-slack" class="login-input" type="url" placeholder="https://hooks.slack.com/services/…"/>
+            </div>
+            <div class="field">
+              <label class="login-label">Voicemail email (where to send call recordings when no lead is captured)</label>
+              <input id="s-voicemail-email" class="login-input" type="email" placeholder="voicemail@yourcompany.com"/>
+            </div>
+            <div class="field">
+              <label class="login-label">On-hold message (what Aria says if she needs to ask someone to wait)</label>
+              <input id="s-hold" class="login-input" type="text" placeholder="Thanks for your patience, we'll be right with you!"/>
             </div>
             <div id="settings-msg" style="display:none;font-size:13px;padding:10px 14px;border-radius:8px"></div>
             <button type="submit" class="login-btn" id="settings-btn" style="max-width:200px">Save changes</button>
@@ -692,10 +782,13 @@ function renderInfo() {
   ].map(([k, v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(v||'—')}</span></div>`).join('');
 
   // Pre-populate settings form
-  document.getElementById('s-hours').value   = b.biz_hours   || '';
-  document.getElementById('s-address').value = b.biz_address || '';
-  document.getElementById('s-pricing').value = b.biz_pricing || '';
-  document.getElementById('s-mobile').value  = b.mobile_number || '';
+  document.getElementById('s-hours').value          = b.biz_hours         || '';
+  document.getElementById('s-address').value        = b.biz_address       || '';
+  document.getElementById('s-pricing').value        = b.biz_pricing       || '';
+  document.getElementById('s-mobile').value         = b.mobile_number     || '';
+  document.getElementById('s-slack').value          = b.slack_webhook_url || '';
+  document.getElementById('s-voicemail-email').value = b.voicemail_email  || '';
+  document.getElementById('s-hold').value           = b.hold_message      || '';
 }
 
 async function saveSettings(e) {
@@ -710,10 +803,13 @@ async function saveSettings(e) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('mc_token')}` },
       body: JSON.stringify({
-        bizHours:   document.getElementById('s-hours').value.trim(),
-        bizAddress: document.getElementById('s-address').value.trim(),
-        bizPricing: document.getElementById('s-pricing').value.trim(),
-        mobileNumber: document.getElementById('s-mobile').value.trim(),
+        bizHours:       document.getElementById('s-hours').value.trim(),
+        bizAddress:     document.getElementById('s-address').value.trim(),
+        bizPricing:     document.getElementById('s-pricing').value.trim(),
+        mobileNumber:   document.getElementById('s-mobile').value.trim(),
+        slackWebhookUrl: document.getElementById('s-slack').value.trim(),
+        voicemailEmail:  document.getElementById('s-voicemail-email').value.trim(),
+        holdMessage:     document.getElementById('s-hold').value.trim(),
       })
     });
     const d = await r.json();
@@ -735,11 +831,139 @@ async function saveSettings(e) {
 
 // ── TABS ──
 function showTab(name, btn) {
-  ['leads','calls','appointments','info'].forEach(t => {
+  ['leads','calls','appointments','staff','team','info'].forEach(t => {
     document.getElementById(`tab-${t}`).style.display = t === name ? 'block' : 'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  if (name === 'staff') loadStaff();
+  if (name === 'team')  loadTeam();
+}
+
+// ── STAFF ──
+function showAddStaff() {
+  document.getElementById('add-staff-form').style.display = 'block';
+  document.getElementById('sf-name').focus();
+}
+
+async function loadStaff() {
+  const token = localStorage.getItem('mc_token');
+  try {
+    const r = await fetch('/api/staff', { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    const tbody = document.getElementById('staff-tbody');
+    const members = d.staff || [];
+    if (!members.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--gray);padding:32px">No staff members yet. Add one above.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = members.map(m => `<tr>
+      <td><strong>${esc(m.name)}</strong></td>
+      <td>${esc(m.role || '—')}</td>
+      <td>${esc(m.phone || '—')}</td>
+      <td>${esc(m.email || '—')}</td>
+      <td><button onclick="removeStaff(${m.id})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:13px">Remove</button></td>
+    </tr>`).join('');
+  } catch(e) {
+    console.error('loadStaff error', e);
+  }
+}
+
+async function addStaffMember() {
+  const name  = document.getElementById('sf-name').value.trim();
+  const role  = document.getElementById('sf-role').value.trim();
+  const phone = document.getElementById('sf-phone').value.trim();
+  const email = document.getElementById('sf-email').value.trim();
+  const msg   = document.getElementById('staff-form-msg');
+  msg.style.display = 'none';
+  if (!name) { msg.textContent = 'Name is required.'; msg.style.cssText = 'display:block;font-size:13px;padding:8px 12px;border-radius:8px;background:#fff0f0;color:#e53e3e'; return; }
+  const token = localStorage.getItem('mc_token');
+  const r = await fetch('/api/staff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name, role, phone, email })
+  });
+  const d = await r.json();
+  if (d.success) {
+    document.getElementById('sf-name').value = '';
+    document.getElementById('sf-role').value = '';
+    document.getElementById('sf-phone').value = '';
+    document.getElementById('sf-email').value = '';
+    document.getElementById('add-staff-form').style.display = 'none';
+    await loadStaff();
+  } else {
+    msg.textContent = d.error || 'Failed to add member.';
+    msg.style.cssText = 'display:block;font-size:13px;padding:8px 12px;border-radius:8px;background:#fff0f0;color:#e53e3e';
+  }
+}
+
+async function removeStaff(id) {
+  if (!confirm('Remove this staff member?')) return;
+  const token = localStorage.getItem('mc_token');
+  await fetch(`/api/staff/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  await loadStaff();
+}
+
+// ── TEAM ──
+function showInviteTeam() {
+  document.getElementById('invite-team-form').style.display = 'block';
+  document.getElementById('tm-email').focus();
+}
+
+async function loadTeam() {
+  const token = localStorage.getItem('mc_token');
+  try {
+    const r = await fetch('/api/team', { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    const tbody = document.getElementById('team-tbody');
+    const members = d.members || [];
+    if (!members.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--gray);padding:32px">No team members yet. Invite one above.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = members.map(m => `<tr>
+      <td>${esc(m.email)}</td>
+      <td>${esc(m.name || '—')}</td>
+      <td>${esc(m.role || 'member')}</td>
+      <td style="color:var(--gray);font-size:13px">${fmtDate(m.created_at)}</td>
+      <td><button onclick="removeTeamMember(${m.id})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:13px">Remove</button></td>
+    </tr>`).join('');
+  } catch(e) {
+    console.error('loadTeam error', e);
+  }
+}
+
+async function inviteTeamMember() {
+  const email = document.getElementById('tm-email').value.trim();
+  const name  = document.getElementById('tm-name').value.trim();
+  const role  = document.getElementById('tm-role').value.trim();
+  const msg   = document.getElementById('team-form-msg');
+  msg.style.display = 'none';
+  if (!email || !email.includes('@')) { msg.textContent = 'Valid email required.'; msg.style.cssText = 'display:block;font-size:13px;padding:8px 12px;border-radius:8px;background:#fff0f0;color:#e53e3e'; return; }
+  const token = localStorage.getItem('mc_token');
+  const r = await fetch('/api/team', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email, name, role })
+  });
+  const d = await r.json();
+  if (d.success) {
+    document.getElementById('tm-email').value = '';
+    document.getElementById('tm-name').value = '';
+    document.getElementById('tm-role').value = '';
+    document.getElementById('invite-team-form').style.display = 'none';
+    await loadTeam();
+  } else {
+    msg.textContent = d.error || 'Failed to invite member.';
+    msg.style.cssText = 'display:block;font-size:13px;padding:8px 12px;border-radius:8px;background:#fff0f0;color:#e53e3e';
+  }
+}
+
+async function removeTeamMember(id) {
+  if (!confirm('Remove this team member?')) return;
+  const token = localStorage.getItem('mc_token');
+  await fetch(`/api/team/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  await loadTeam();
 }
 
 // ── HELPERS ──

@@ -59,7 +59,7 @@ app.use((req, res, next) => {
   const allowed = process.env.ALLOWED_ORIGIN || process.env.SERVER_URL || '*';
   res.header('Access-Control-Allow-Origin',  allowed === '*' ? '*' : origin === allowed ? origin : '');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
@@ -1070,6 +1070,103 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
       totalAppointments:apptsResult.count  ?? appointments.length,
     }
   });
+});
+
+// =============================================================
+//  STAFF DIRECTORY CRUD
+// =============================================================
+app.get('/api/staff', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase.from('staff')
+    .select('*').eq('business_id', req.businessId).eq('active', true).order('name');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ staff: data });
+});
+
+app.post('/api/staff', authMiddleware, async (req, res) => {
+  const { name, role, phone, email } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  const { data, error } = await supabase.from('staff').insert({
+    business_id: req.businessId,
+    name, role: role || null,
+    phone: phone ? normalizePhone(phone) : null,
+    email: email || null
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, member: data });
+});
+
+app.delete('/api/staff/:id', authMiddleware, async (req, res) => {
+  const { error } = await supabase.from('staff')
+    .update({ active: false })
+    .eq('id', req.params.id)
+    .eq('business_id', req.businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+// =============================================================
+//  TEAM MEMBERS CRUD
+// =============================================================
+app.get('/api/team', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase.from('team_members')
+    .select('id, email, name, role, created_at')
+    .eq('business_id', req.businessId).order('created_at');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ members: data });
+});
+
+app.post('/api/team', authMiddleware, async (req, res) => {
+  const { email, name, role } = req.body;
+  if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required.' });
+
+  const { data: existing } = await supabase.from('team_members')
+    .select('id').eq('email', email).maybeSingle();
+  if (existing) return res.status(400).json({ error: 'This email is already a team member.' });
+
+  const { data: biz } = await supabase.from('businesses')
+    .select('business_name').eq('id', req.businessId).single();
+
+  const { error } = await supabase.from('team_members').insert({
+    business_id: req.businessId,
+    email, name: name || null, role: role || 'member'
+  });
+  if (error) return res.status(500).json({ error: error.message });
+
+  if (process.env.RESEND_API_KEY) {
+    const dashUrl = process.env.SERVER_URL || 'https://missedcallio-production.up.railway.app';
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        to: email,
+        subject: `You've been added to ${biz?.business_name || 'a MissedCallio account'}`,
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+          <h2 style="color:#ff5c00">You're on the team!</h2>
+          <p>Hi${name ? ' ' + name : ''},</p>
+          <p>You've been added as a team member on the <strong>${biz?.business_name || ''}</strong> MissedCallio account.</p>
+          <p>Log in with your email address at:</p>
+          <br/>
+          <a href="${dashUrl}/dashboard" style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500">
+            Open dashboard →
+          </a>
+          <br/><br/>
+          <p style="color:#888">— The MissedCallio Team</p>
+        </div>`
+      })
+    });
+  }
+
+  res.json({ success: true });
+});
+
+app.delete('/api/team/:id', authMiddleware, async (req, res) => {
+  const { error } = await supabase.from('team_members')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('business_id', req.businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
 });
 
 // =============================================================
