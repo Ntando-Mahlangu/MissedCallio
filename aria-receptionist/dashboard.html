@@ -171,6 +171,59 @@ table.data-table tbody tr:last-child td{border-bottom:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 #loading{text-align:center;padding:60px}
 
+/* ── ANIMATIONS ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+@keyframes scaleIn{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.4)}}
+
+.stat-card{
+  animation:fadeUp .45s ease both;
+  transition:transform .2s,box-shadow .2s;
+  position:relative;overflow:hidden;
+}
+.stat-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.1)}
+.stat-card::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.55) 50%,transparent 60%);
+  background-size:200% 100%;
+  opacity:0;transition:opacity .2s;
+}
+.stat-card:hover::after{opacity:1;animation:shimmer .7s ease forwards}
+
+.stat-card:nth-child(1){animation-delay:.05s}
+.stat-card:nth-child(2){animation-delay:.10s}
+.stat-card:nth-child(3){animation-delay:.15s}
+.stat-card:nth-child(4){animation-delay:.20s}
+.stat-card:nth-child(5){animation-delay:.25s}
+
+.table-wrap{animation:scaleIn .4s .3s ease both}
+
+tbody tr{animation:slideIn .3s ease both}
+tbody tr:nth-child(1){animation-delay:.32s}
+tbody tr:nth-child(2){animation-delay:.37s}
+tbody tr:nth-child(3){animation-delay:.42s}
+tbody tr:nth-child(4){animation-delay:.47s}
+tbody tr:nth-child(5){animation-delay:.52s}
+tbody tr:nth-child(6){animation-delay:.57s}
+tbody tr:nth-child(7){animation-delay:.60s}
+tbody tr:nth-child(n+8){animation-delay:.62s}
+
+/* live dot */
+.live-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--green);
+  display:inline-block;margin-right:6px;
+  animation:livePulse 1.8s ease-in-out infinite;
+}
+
+/* tab transition */
+.tab-panel{animation:fadeUp .25s ease both}
+
+/* accent stat glow */
+.stat-value.accent{text-shadow:0 0 20px rgba(255,92,0,.15)}
+.stat-value.green{text-shadow:0 0 20px rgba(0,200,83,.12)}
+
 /* ── RESPONSIVE ── */
 @media(max-width:700px){
   main{padding:20px 16px}
@@ -219,7 +272,7 @@ table.data-table tbody tr:last-child td{border-bottom:none}
     <div class="h-biz" id="h-biz-name"></div>
     <div class="h-right">
       <span class="plan-badge" id="plan-badge"></span>
-      <span id="last-refresh" style="font-size:12px;color:#555"></span>
+      <span id="last-refresh" style="font-size:12px;color:#555;display:flex;align-items:center"><span class="live-dot"></span><span id="last-refresh-text"></span></span>
       <button class="logout-btn" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -596,7 +649,7 @@ async function loadDashboard(silent = false) {
       document.getElementById('content').style.display = 'block';
     }
     // Update last-refreshed indicator
-    const el = document.getElementById('last-refresh');
+    const el = document.getElementById('last-refresh-text');
     if (el) el.textContent = `Updated ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
   } catch {
     if (!silent) {
@@ -624,22 +677,22 @@ function renderAll() {
   setPlanBadge(business.status);
 
   const pg = DATA.pagination || {};
-  document.getElementById('s-leads').textContent = stats.totalLeads;
+  countUp(document.getElementById('s-leads'), stats.totalLeads);
   document.getElementById('s-leads-today').textContent = `${stats.leadsToday} today`;
-  document.getElementById('s-calls').textContent = stats.totalCalls;
+  countUp(document.getElementById('s-calls'), stats.totalCalls);
   document.getElementById('s-calls-today').textContent = `${stats.callsToday} today`;
   // Show note if we're only showing a page of results
   const leadsShown = (DATA.leads||[]).length;
   document.getElementById('leads-count').textContent = leadsShown < stats.totalLeads
     ? `${leadsShown} of ${stats.totalLeads}`
     : `${leadsShown} result${leadsShown !== 1 ? 's' : ''}`;
-  document.getElementById('s-returning').textContent = stats.returningCallers;
+  countUp(document.getElementById('s-returning'), stats.returningCallers);
   document.getElementById('s-duration').textContent = stats.avgDuration;
 
   const appts = DATA.appointments || [];
   const now = Date.now();
   const upcoming = appts.filter(a => new Date(a.appointment_time) > now);
-  document.getElementById('s-appts').textContent = appts.length;
+  countUp(document.getElementById('s-appts'), appts.length);
   document.getElementById('s-appts-upcoming').textContent = `${upcoming.length} upcoming`;
 
   // Only show appointments tab for growth/pro plans
@@ -832,7 +885,15 @@ async function saveSettings(e) {
 // ── TABS ──
 function showTab(name, btn) {
   ['leads','calls','appointments','staff','team','info'].forEach(t => {
-    document.getElementById(`tab-${t}`).style.display = t === name ? 'block' : 'none';
+    const panel = document.getElementById(`tab-${t}`);
+    if (t === name) {
+      panel.style.display = 'block';
+      panel.style.animation = 'none';
+      void panel.offsetWidth; // reflow
+      panel.style.animation = 'fadeUp .25s ease both';
+    } else {
+      panel.style.display = 'none';
+    }
   });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -964,6 +1025,21 @@ async function removeTeamMember(id) {
   const token = localStorage.getItem('mc_token');
   await fetch(`/api/team/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
   await loadTeam();
+}
+
+// ── COUNT-UP ──
+function countUp(el, target, dur = 700) {
+  const isNum = typeof target === 'number' && !isNaN(target);
+  if (!isNum) { el.textContent = target; return; }
+  const start = performance.now();
+  const from = 0;
+  function step(now) {
+    const p = Math.min((now - start) / dur, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + (target - from) * ease);
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
 }
 
 // ── HELPERS ──

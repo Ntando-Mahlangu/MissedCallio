@@ -492,6 +492,59 @@ h1 em {
 }
 .use-case-desc { font-size: 14px; color: var(--gray); line-height: 1.6; }
 
+/* ── RETENTION ── */
+.retention-section { padding: 100px 48px; background: var(--white); }
+.retention-inner { max-width: 1100px; margin: 0 auto; }
+
+.retention-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: start;
+  margin-top: 64px;
+}
+
+.retention-stat-stack { display: flex; flex-direction: column; gap: 20px; }
+
+.ret-stat {
+  display: flex; align-items: center; gap: 20px;
+  background: var(--surface);
+  border: 1.5px solid var(--gray-light);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  transition: transform .2s, box-shadow .2s;
+}
+.ret-stat:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.06); }
+
+.ret-stat-num {
+  font-family: 'Syne', sans-serif;
+  font-size: 40px; font-weight: 800;
+  letter-spacing: -2px;
+  line-height: 1;
+  color: var(--accent);
+  flex-shrink: 0;
+  min-width: 90px;
+}
+.ret-stat-text-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.ret-stat-text-desc { font-size: 13px; color: var(--gray); line-height: 1.5; }
+
+.retention-features { display: flex; flex-direction: column; gap: 28px; }
+
+.ret-feature { display: flex; gap: 18px; align-items: flex-start; }
+.ret-icon {
+  width: 44px; height: 44px; border-radius: 12px;
+  background: var(--accent-light); border: 1px solid #ffd4b8;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+}
+.ret-feature-title { font-size: 16px; font-weight: 600; margin-bottom: 5px; }
+.ret-feature-desc { font-size: 14px; color: var(--gray); line-height: 1.6; }
+
+@media(max-width:768px){
+  .retention-section { padding: 60px 20px; }
+  .retention-grid { grid-template-columns: 1fr; gap: 48px; }
+}
+
 /* ── FOOTER ── */
 footer {
   padding: 40px 48px;
@@ -689,6 +742,72 @@ footer {
           <div class="cp-bubble aria">Oh no — let's get someone to you fast. What's your callback number?</div>
           <div class="cp-bubble caller">555-867-5309</div>
           <div class="cp-bubble aria">Perfect Mike, you're noted down. Someone'll call you back shortly!</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RETENTION -->
+<section class="retention-section">
+  <div class="retention-inner">
+    <div class="section-tag">Customer retention</div>
+    <h2 class="section-title">Capturing leads is just<br/>the start.</h2>
+    <p class="section-sub">MissedCallio doesn't just answer calls — it builds the relationship that keeps customers coming back.</p>
+
+    <div class="retention-grid">
+      <div class="retention-stat-stack">
+        <div class="ret-stat">
+          <div class="ret-stat-num">68%</div>
+          <div>
+            <div class="ret-stat-text-title">Of callers never call back</div>
+            <div class="ret-stat-text-desc">If they hit voicemail, they move on to a competitor within minutes. Aria makes sure that never happens.</div>
+          </div>
+        </div>
+        <div class="ret-stat">
+          <div class="ret-stat-num">3×</div>
+          <div>
+            <div class="ret-stat-text-title">More repeat business</div>
+            <div class="ret-stat-text-desc">Businesses that follow up with appointment reminders and SMS confirmations book 3× more returning customers on average.</div>
+          </div>
+        </div>
+        <div class="ret-stat">
+          <div class="ret-stat-num">$0</div>
+          <div>
+            <div class="ret-stat-text-title">Lost to after-hours calls</div>
+            <div class="ret-stat-text-desc">Aria runs 24/7. Every call at 11pm or on a Sunday is captured — not sent to voicemail and forgotten.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="retention-features">
+        <div class="ret-feature">
+          <div class="ret-icon">📱</div>
+          <div>
+            <div class="ret-feature-title">Instant SMS alerts — you never miss a hot lead</div>
+            <div class="ret-feature-desc">The moment Aria hangs up, you get a text with the caller's name, issue, and number. Strike while the iron is hot and call them back before a competitor does.</div>
+          </div>
+        </div>
+        <div class="ret-feature">
+          <div class="ret-icon">🔔</div>
+          <div>
+            <div class="ret-feature-title">Automatic appointment reminders</div>
+            <div class="ret-feature-desc">Aria texts booked customers 24 hours before their appointment. Fewer no-shows, less phone tag, and customers who feel taken care of before you even arrive.</div>
+          </div>
+        </div>
+        <div class="ret-feature">
+          <div class="ret-icon">↩️</div>
+          <div>
+            <div class="ret-feature-title">Returning caller recognition</div>
+            <div class="ret-feature-desc">Your dashboard flags every returning caller. See who's called before, what they needed, and reach out proactively — turning one-time customers into loyal regulars.</div>
+          </div>
+        </div>
+        <div class="ret-feature">
+          <div class="ret-icon">🎙️</div>
+          <div>
+            <div class="ret-feature-title">Call recordings, always on file</div>
+            <div class="ret-feature-desc">Every conversation is recorded and available on your dashboard. Review calls, catch details you missed, and resolve disputes with confidence — full transparency, zero guesswork.</div>
+          </div>
         </div>
       </div>
     </div>
