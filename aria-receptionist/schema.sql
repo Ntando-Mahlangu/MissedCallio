@@ -74,6 +74,40 @@ create index if not exists appointments_reminder_idx on appointments (appointmen
 create index if not exists leads_phone_idx        on leads (business_id, phone);
 create index if not exists appointments_phone_idx on appointments (business_id, phone);
 
+-- Feature 1: Staff Directory
+create table if not exists staff (
+  id           bigint generated always as identity primary key,
+  business_id  uuid references businesses(id) on delete cascade,
+  name         text not null,
+  role         text,
+  phone        text,
+  email        text,
+  active       boolean default true,
+  created_at   timestamptz default now()
+);
+create index if not exists staff_business_idx on staff (business_id);
+
+-- Feature 2: Slack notifications
+alter table businesses add column if not exists slack_webhook_url text;
+
+-- Feature 3: Team members
+create table if not exists team_members (
+  id           bigint generated always as identity primary key,
+  business_id  uuid references businesses(id) on delete cascade,
+  email        text not null,
+  name         text,
+  role         text default 'member',
+  created_at   timestamptz default now(),
+  unique(email)
+);
+create index if not exists team_members_email_idx on team_members (email);
+
+-- Feature 4: Voicemail email
+alter table businesses add column if not exists voicemail_email text;
+
+-- Feature 5: On-hold message
+alter table businesses add column if not exists hold_message text;
+
 -- SQL function used by /api/dashboard to count returning callers accurately
 create or replace function count_returning_callers(biz_id uuid)
 returns bigint language sql stable as $$

@@ -278,6 +278,23 @@ function buildAssistantConfig(business) {
     });
   }
 
+  if (plan === 'pro') {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'route_to_staff',
+        description: "Look up a staff member the caller wants to reach. Call this when the caller asks to speak to a specific person or department.",
+        parameters: {
+          type: 'object',
+          required: ['staff_name'],
+          properties: {
+            staff_name: { type: 'string', description: "Name or department the caller asked for" }
+          }
+        }
+      }
+    });
+  }
+
   return {
     name:  `MissedCall — ${business_name}`,
     model: {
@@ -313,7 +330,7 @@ function buildAssistantConfig(business) {
 //  SYSTEM PROMPT
 // =============================================================
 function buildSystemPrompt(business) {
-  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan } = business;
+  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message } = business;
   const canBook = plan === 'growth' || plan === 'pro';
 
   return `You are Aria, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
@@ -344,7 +361,7 @@ HANDLING QUESTIONS:
 - Upset/urgent caller: empathy first. "Oh no, let's get someone to you as fast as we can."
 - NEVER say: cannot help, don't have access, as an AI language model, I apologize for the inconvenience.
 
-STYLE: Warm, natural, human. Contractions always. 1–2 short sentences per reply. This is a phone call.`;
+STYLE: Warm, natural, human. Contractions always. 1–2 short sentences per reply. This is a phone call.${plan === 'pro' ? '\n\nSTAFF DIRECTORY: If a caller asks to speak to someone specific or reach a department, use the route_to_staff tool. Do NOT guess — let the tool look them up.' : ''}${hold_message ? `\n\nON-HOLD MESSAGE: If you ever need to put someone on hold or let them know there's a wait, say: "${hold_message}"` : ''}`;
 }
 
 // =============================================================
@@ -424,6 +441,8 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
             result = await saveLead(businessId, callId, call, params);
           } else if (tc.function.name === 'book_appointment') {
             result = await saveAppointment(businessId, callId, call, params);
+          } else if (tc.function.name === 'route_to_staff') {
+            result = await routeToStaff(businessId, callId, call, params);
           }
         } catch (err) {
           console.error('[webhook] tool error:', err.message);
@@ -447,12 +466,50 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
 
     if (type === 'call-ended') {
       console.log(`[call] ended ${callId} (${call?.duration || 0}s)`);
+      const recordingUrl = call?.recordingUrl || null;
+      const duration = call?.duration || null;
       await supabase.from('calls').update({
         status:           'completed',
         ended_at:         new Date().toISOString(),
-        duration_seconds: call?.duration || null,
-        recording_url:    call?.recordingUrl || null,
+        duration_seconds: duration,
+        recording_url:    recordingUrl,
       }).eq('id', callId);
+
+      // Voicemail drop — email recording if no lead or appointment was saved
+      if (recordingUrl) {
+        const { data: biz } = await supabase.from('businesses')
+          .select('business_name, email, voicemail_email').eq('id', businessId).single();
+        const { count: leadCount } = await supabase.from('leads')
+          .select('id', { count: 'exact', head: true }).eq('call_id', callId);
+        const { count: apptCount } = await supabase.from('appointments')
+          .select('id', { count: 'exact', head: true }).eq('call_id', callId);
+
+        if ((leadCount === 0 && apptCount === 0) && biz && process.env.RESEND_API_KEY) {
+          const sendTo = biz.voicemail_email || biz.email;
+          const callerNum = call?.customer?.number || 'Unknown';
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+              to: sendTo,
+              subject: `Voicemail from ${callerNum} — ${biz.business_name}`,
+              html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+                <h2 style="color:#ff5c00">You have a voicemail</h2>
+                <p>A caller hung up before leaving details. Duration: ${duration || 0}s.</p>
+                <p><strong>Caller:</strong> ${callerNum}</p>
+                <br/>
+                <a href="${recordingUrl}" style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500">
+                  Listen to recording →
+                </a>
+                <br/><br/>
+                <p style="color:#888">— MissedCallio</p>
+              </div>`
+            })
+          });
+          console.log(`[voicemail] emailed recording for call ${callId} to ${sendTo}`);
+        }
+      }
     }
 
   } catch (err) {
@@ -478,7 +535,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (!name || !phone) return { success: false, error: 'Missing name or phone' };
 
   const { data: business } = await supabase
-    .from('businesses').select('business_name, mobile_number').eq('id', businessId).single();
+    .from('businesses').select('business_name, mobile_number, slack_webhook_url').eq('id', businessId).single();
 
   const lead = {
     business_id:   businessId,
@@ -493,7 +550,13 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   const { error } = await supabase.from('leads').insert(lead);
   if (error) console.error('[lead] insert error:', error.message);
 
-  if (business) await sendSMSToOwner(business, lead);
+  if (business) {
+    await sendSMSToOwner(business, lead);
+    if (business.slack_webhook_url) {
+      await sendSlack(business.slack_webhook_url,
+        `📞 *New lead — ${business.business_name}*\n*Name:* ${name}\n*Phone:* ${lead.phone}\n*Issue:* ${issue}`);
+    }
+  }
 
   console.log(`[lead] saved: ${name} | ${phone}`);
   return { success: true };
@@ -508,7 +571,7 @@ async function saveAppointment(businessId, callId, call, { name, phone, service,
   }
 
   const { data: business } = await supabase
-    .from('businesses').select('business_name, mobile_number, biz_address').eq('id', businessId).single();
+    .from('businesses').select('business_name, mobile_number, biz_address, slack_webhook_url').eq('id', businessId).single();
 
   const apptTime = new Date(appointment_time);
   if (isNaN(apptTime.getTime())) return { success: false, error: 'Invalid appointment_time' };
@@ -540,6 +603,10 @@ async function saveAppointment(businessId, callId, call, { name, phone, service,
       `Name:    ${name}\nPhone:   ${phone}\nService: ${service}\nTime:    ${formatApptTime(apptTime)}` +
       (notes ? `\nNotes:   ${notes}` : '')
     );
+    if (business.slack_webhook_url) {
+      await sendSlack(business.slack_webhook_url,
+        `📅 *New appointment — ${business.business_name}*\n*Name:* ${name}\n*Service:* ${service}\n*Time:* ${formatApptTime(apptTime)}\n*Phone:* ${normalizePhone(phone)}`);
+    }
   }
 
   return { success: true, appointment_id: appt.id };
@@ -639,6 +706,79 @@ async function sendSMS(to, body) {
   }
 }
 
+// =============================================================
+//  SLACK HELPER
+// =============================================================
+async function sendSlack(webhookUrl, text) {
+  if (!webhookUrl) return;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+  } catch (err) {
+    console.error('[slack] send error:', err.message);
+  }
+}
+
+// =============================================================
+//  ROUTE TO STAFF
+// =============================================================
+async function routeToStaff(businessId, callId, call, { staff_name }) {
+  const { data: members } = await supabase
+    .from('staff')
+    .select('*')
+    .eq('business_id', businessId)
+    .eq('active', true);
+
+  if (!members || members.length === 0) {
+    return { found: false, message: "I don't have a staff directory set up yet — let me take a message for the team." };
+  }
+
+  const query = staff_name.toLowerCase();
+  const match = members.find(m =>
+    m.name.toLowerCase().includes(query) ||
+    (m.role && m.role.toLowerCase().includes(query))
+  );
+
+  if (!match) {
+    const names = members.map(m => m.name).join(', ');
+    return { found: false, message: `I couldn't find ${staff_name} — the team members I have are: ${names}. Would you like to leave a message for one of them?` };
+  }
+
+  // Text the staff member if they have a phone
+  if (match.phone && process.env.TWILIO_ACCOUNT_SID) {
+    const callerNum = call?.customer?.number || 'unknown';
+    await sendSMS(
+      normalizePhone(match.phone),
+      `MissedCallio: ${callerNum} is on the phone asking for you. Call them back asap.`
+    );
+  }
+
+  // Email the staff member if they have an email and no phone
+  if (match.email && !match.phone && process.env.RESEND_API_KEY) {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        to: match.email,
+        subject: `Someone is asking for you`,
+        html: `<p>A caller is on the line asking for you (${match.name}). Caller number: ${call?.customer?.number || 'unknown'}.</p>`
+      })
+    });
+  }
+
+  console.log(`[route] caller routed to ${match.name}`);
+  return {
+    found: true,
+    name: match.name,
+    role: match.role || 'team member',
+    message: `I've alerted ${match.name} that you're calling. They'll call you back shortly — could I take your number just in case?`
+  };
+}
+
 function formatApptTime(date) {
   return date.toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
@@ -725,11 +865,23 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required.' });
 
-  const { data: business } = await supabase
+  // First try businesses table
+  let { data: business } = await supabase
     .from('businesses')
     .select('id, email')
     .eq('email', email.toLowerCase().trim())
-    .single();
+    .maybeSingle();
+
+  // If not found, check team_members
+  if (!business) {
+    const { data: member } = await supabase
+      .from('team_members').select('business_id, email, name').eq('email', email.toLowerCase().trim()).maybeSingle();
+    if (member) {
+      const { data: biz } = await supabase
+        .from('businesses').select('id, email').eq('id', member.business_id).single();
+      if (biz) business = { id: biz.id, email: member.email };
+    }
+  }
 
   // Always respond the same way to prevent account enumeration
   if (!business) {
@@ -775,11 +927,27 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
   // Mark used
   await supabase.from('auth_otps').update({ used: true }).eq('id', record.id);
 
-  const { data: business } = await supabase
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Look up business by owner email first
+  let { data: business } = await supabase
     .from('businesses')
     .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number')
-    .eq('email', email.toLowerCase().trim())
-    .single();
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+
+  // If not found, check team_members and get the associated business
+  if (!business) {
+    const { data: member } = await supabase
+      .from('team_members').select('business_id, name').eq('email', normalizedEmail).maybeSingle();
+    if (member) {
+      const { data: biz } = await supabase
+        .from('businesses')
+        .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number')
+        .eq('id', member.business_id).single();
+      if (biz) business = biz;
+    }
+  }
 
   if (!business) return res.status(404).json({ error: 'Account not found.' });
 
@@ -818,12 +986,15 @@ async function sendOTPEmail(email, otp) {
 // =============================================================
 app.post('/api/settings', authMiddleware, async (req, res) => {
   const { businessId } = req;
-  const { bizHours, bizAddress, bizPricing, mobileNumber } = req.body;
+  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage } = req.body;
   const updates = {};
   if (bizHours    !== undefined) updates.biz_hours   = bizHours;
   if (bizAddress  !== undefined) updates.biz_address = bizAddress;
   if (bizPricing  !== undefined) updates.biz_pricing = bizPricing;
   if (mobileNumber !== undefined) updates.mobile_number = normalizePhone(mobileNumber) || mobileNumber;
+  if (slackWebhookUrl !== undefined) updates.slack_webhook_url = slackWebhookUrl || null;
+  if (voicemailEmail  !== undefined) updates.voicemail_email   = voicemailEmail  || null;
+  if (holdMessage     !== undefined) updates.hold_message      = holdMessage      || null;
   if (Object.keys(updates).length === 0) return res.json({ success: true });
   const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
   if (error) return res.status(500).json({ error: error.message });
@@ -842,7 +1013,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
