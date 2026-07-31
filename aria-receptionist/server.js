@@ -11,6 +11,7 @@ import crypto     from 'crypto';
 import dotenv     from 'dotenv';
 import path       from 'path';
 import { fileURLToPath } from 'url';
+import { createPaddleCheckout, handlePaddleWebhook } from './paddle.js';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -70,9 +71,9 @@ app.use((req, res, next) => {
 const SAFE_FILES = {
   '/':           'index.html',
   '/dashboard':  'dashboard.html',
-  '/terms':      'Terms. html.txt',
-  '/privacy':    'ptivacy. html.txt',
-  '/refund':     'refund. html.txt',
+  '/terms':      'terms.html',
+  '/privacy':    'privacy.html',
+  '/refund':     'refund.html',
 };
 for (const [route, file] of Object.entries(SAFE_FILES)) {
   app.get(route, (_req, res) => res.sendFile(path.join(__dirname, file)));
@@ -138,7 +139,8 @@ app.post('/signup', signupLimiter, async (req, res) => {
   const {
     firstName, lastName, businessName,
     mobileNumber, email, industry, plan,
-    bizHours, bizAddress, bizPricing
+    bizHours, bizAddress, bizPricing,
+    departments, teamSize, officeType
   } = req.body;
 
   if (!firstName || !email || !businessName || !mobileNumber) {
@@ -164,7 +166,10 @@ app.post('/signup', signupLimiter, async (req, res) => {
         biz_pricing:   bizPricing || 'Please call us for a quote',
         plan:          plan || 'growth',
         trial_ends_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        status:        'trial'
+        status:        'trial',
+        departments:   departments || null,
+        team_size:     teamSize    || null,
+        office_type:   officeType  || 'solo'
       })
       .select()
       .single();
@@ -203,10 +208,20 @@ app.post('/signup', signupLimiter, async (req, res) => {
       );
     }
 
+    let checkoutUrl = null;
+    if (process.env.PADDLE_API_KEY) {
+      try {
+        checkoutUrl = await createPaddleCheckout({ ...business, name: `${firstName} ${lastName}` });
+      } catch (paddleErr) {
+        console.warn('[signup] Paddle checkout failed:', paddleErr.message);
+      }
+    }
+
     console.log(`[signup] ${businessName} live${phoneNumber ? ' on ' + phoneNumber : ''}`);
     res.json({
       success: true,
       missedcallNumber: phoneNumber,
+      checkoutUrl,
       message: phoneNumber
         ? `You're live! Forward your calls to ${phoneNumber}`
         : `You're signed up! Check your email for next steps.`
@@ -330,7 +345,10 @@ function buildAssistantConfig(business) {
 //  SYSTEM PROMPT
 // =============================================================
 function buildSystemPrompt(business) {
-  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message } = business;
+  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message, departments, office_type } = business;
+  const deptList = departments ? departments.split(',').map(d => d.trim()).filter(Boolean) : [];
+  const hasDepts = deptList.length > 1;
+  const isOffice = office_type === 'small_office' || office_type === 'clinic' || office_type === 'agency';
   const canBook = plan === 'growth' || plan === 'pro';
 
   return `You are Aria, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
@@ -361,7 +379,7 @@ HANDLING QUESTIONS:
 - Upset/urgent caller: empathy first. "Oh no, let's get someone to you as fast as we can."
 - NEVER say: cannot help, don't have access, as an AI language model, I apologize for the inconvenience.
 
-STYLE: Warm, natural, human. Contractions always. 1–2 short sentences per reply. This is a phone call.${plan === 'pro' ? '\n\nSTAFF DIRECTORY: If a caller asks to speak to someone specific or reach a department, use the route_to_staff tool. Do NOT guess — let the tool look them up.' : ''}${hold_message ? `\n\nON-HOLD MESSAGE: If you ever need to put someone on hold or let them know there's a wait, say: "${hold_message}"` : ''}`;
+STYLE: Warm, natural, human. Contractions always. 1–2 short sentences per reply. This is a phone call.${plan === 'pro' ? '\n\nSTAFF DIRECTORY: If a caller asks to speak to someone specific or reach a department, use the route_to_staff tool. Do NOT guess — let the tool look them up.' : ''}${hasDepts ? `\n\nDEPARTMENT ROUTING: This business has departments: ${deptList.join(', ')}. When the caller mentions a department or type of enquiry, include it in the issue field when calling save_lead (e.g. "Sales enquiry — needs a quote"). The team will be notified accordingly.` : ''}${isOffice ? `\n\nOFFICE CONTEXT: This is a ${office_type.replace('_', ' ')} with multiple staff. Be professional and concise. If the caller asks for a specific person, take their name and issue and assure them the right person will call back.` : ''}${hold_message ? `\n\nON-HOLD MESSAGE: If you ever need to put someone on hold or let them know there's a wait, say: "${hold_message}"` : ''}`;
 }
 
 // =============================================================
@@ -535,7 +553,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (!name || !phone) return { success: false, error: 'Missing name or phone' };
 
   const { data: business } = await supabase
-    .from('businesses').select('business_name, mobile_number, slack_webhook_url').eq('id', businessId).single();
+    .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments').eq('id', businessId).single();
 
   const lead = {
     business_id:   businessId,
@@ -551,7 +569,24 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (error) console.error('[lead] insert error:', error.message);
 
   if (business) {
-    await sendSMSToOwner(business, lead);
+    // Route to matching team members if departments configured
+    const { data: teamMembers } = await supabase
+      .from('team_members')
+      .select('name, role, phone, notify_sms')
+      .eq('business_id', businessId)
+      .eq('notify_sms', true);
+
+    const issueText = (issue || '').toLowerCase();
+    const toNotify = teamMembers?.filter(m =>
+      !m.role || issueText.includes(m.role.toLowerCase())
+    ) || [];
+
+    if (toNotify.length > 0) {
+      await Promise.all(toNotify.map(member => sendSMSToTeamMember(member, business, lead)));
+    } else {
+      await sendSMSToOwner(business, lead);
+    }
+
     if (business.slack_webhook_url) {
       await sendSlack(business.slack_webhook_url,
         `📞 *New lead — ${business.business_name}*\n*Name:* ${name}\n*Phone:* ${lead.phone}\n*Issue:* ${issue}`);
@@ -560,6 +595,15 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
 
   console.log(`[lead] saved: ${name} | ${phone}`);
   return { success: true };
+}
+
+async function sendSMSToTeamMember(member, business, lead) {
+  if (!process.env.TWILIO_ACCOUNT_SID || !member?.phone) return;
+  const time = new Date(lead.received_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
+  await sendSMS(
+    normalizePhone(member.phone),
+    `New call for you — ${business.business_name}\nFrom: ${lead.name} (${lead.phone})\nIssue: ${lead.issue}\nTime: ${time}`
+  );
 }
 
 // =============================================================
@@ -1197,6 +1241,8 @@ app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json({ total: data.length, calls: data });
 });
+
+app.post('/paddle/webhook', (req, res) => handlePaddleWebhook(req, res, supabase));
 
 app.get('/health', (_req, res) => res.json({
   status:  'ok',

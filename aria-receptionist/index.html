@@ -375,6 +375,36 @@ h1 em {
   align-self: flex-end;
 }
 
+/* ── WHO IT'S FOR ── */
+.who-section { padding: 100px 48px; background: var(--white); }
+.who-inner { max-width: 1100px; margin: 0 auto; text-align: center; }
+.who-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+  margin-top: 52px; text-align: left;
+}
+.who-card {
+  padding: 32px 28px; border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid transparent;
+  position: relative; overflow: hidden;
+  transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.who-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--accent); transform: scaleX(0); transform-origin: left;
+  transition: transform .25s ease;
+}
+.who-card:hover { border-color: rgba(255,92,0,.15); box-shadow: 0 12px 40px rgba(0,0,0,.07); transform: translateY(-3px); }
+.who-card:hover::before { transform: scaleX(1); }
+.who-icon { font-size: 32px; margin-bottom: 14px; }
+.who-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+.who-card p { font-size: 14px; color: var(--gray); line-height: 1.6; margin-bottom: 16px; }
+.who-tag {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--accent);
+  background: var(--accent-light); padding: 4px 10px; border-radius: 99px;
+}
+
 /* ── PRICING ── */
 .pricing-section { padding: 100px 48px; background: #090909; }
 .pricing-inner { max-width: 1100px; margin: 0 auto; }
@@ -655,6 +685,8 @@ footer {
   .section { padding: 60px 20px; }
   .flow-section { padding: 60px 20px; }
   .flow-grid { grid-template-columns: 1fr; gap: 40px; }
+  .who-section { padding: 60px 20px; }
+  .who-grid { grid-template-columns: 1fr; }
   .pricing-section { padding: 60px 20px; }
   .pricing-grid { grid-template-columns: 1fr; }
   .signup-section { padding: 60px 20px; }
@@ -904,6 +936,53 @@ footer {
   </div>
 </section>
 
+<!-- WHO IT'S FOR -->
+<section class="who-section" id="who">
+  <div class="who-inner">
+    <div class="section-tag">Who it's for</div>
+    <h2 class="section-title">Built for every business<br/>that answers phones</h2>
+    <p class="section-sub">Whether you're a one-person trade or a 15-person office, Aria fits in from day one.</p>
+    <div class="who-grid">
+      <div class="who-card reveal">
+        <div class="who-icon">🔧</div>
+        <h3>Trades &amp; services</h3>
+        <p>Plumbers, electricians, HVAC, cleaners. Never miss a job inquiry while you're on-site.</p>
+        <div class="who-tag">Solo &amp; small crew</div>
+      </div>
+      <div class="who-card reveal">
+        <div class="who-icon">🏥</div>
+        <h3>Clinics &amp; practices</h3>
+        <p>GPs, dentists, physios, vets. Aria routes calls to the right department and captures booking requests.</p>
+        <div class="who-tag">Clinic &amp; medical</div>
+      </div>
+      <div class="who-card reveal">
+        <div class="who-icon">🏢</div>
+        <h3>Small offices</h3>
+        <p>Accountants, law firms, agencies. Aria asks which department the caller needs and notifies the right team member by SMS.</p>
+        <div class="who-tag">2–20 staff</div>
+      </div>
+      <div class="who-card reveal">
+        <div class="who-icon">🏪</div>
+        <h3>Retail &amp; hospitality</h3>
+        <p>Restaurants, salons, gyms, boutiques. Handle booking and enquiry calls without pulling staff off the floor.</p>
+        <div class="who-tag">Customer-facing</div>
+      </div>
+      <div class="who-card reveal">
+        <div class="who-icon">🚚</div>
+        <h3>Logistics &amp; delivery</h3>
+        <p>Couriers, removalists, transport. Drivers stay focused — Aria handles dispatch calls and captures job details.</p>
+        <div class="who-tag">Mobile &amp; field</div>
+      </div>
+      <div class="who-card reveal">
+        <div class="who-icon">📐</div>
+        <h3>Professional services</h3>
+        <p>Consultants, coaches, freelancers. A professional receptionist voice without the full-time hire.</p>
+        <div class="who-tag">Solo to agency</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- PRICING -->
 <section class="pricing-section reveal" id="pricing">
   <div class="pricing-inner">
@@ -1019,6 +1098,24 @@ footer {
       </div>
 
       <div class="field">
+        <label>What best describes your business?</label>
+        <select id="f-office-type" onchange="toggleOfficeFields()">
+          <option value="solo">Solo / self-employed</option>
+          <option value="small_office">Small office (2–20 staff)</option>
+          <option value="clinic">Medical or dental clinic</option>
+          <option value="agency">Agency or professional services</option>
+        </select>
+      </div>
+
+      <div id="office-fields" style="display:none">
+        <div class="field">
+          <label>Departments <span style="font-weight:400;color:#888">(optional — Aria will ask callers which one)</span></label>
+          <input id="f-departments" type="text" placeholder="e.g. Sales, Support, Accounts, Admin"/>
+          <p style="font-size:12px;color:#888;margin-top:6px">Comma-separated. Leave blank for a single team.</p>
+        </div>
+      </div>
+
+      <div class="field">
         <label>Plan</label>
         <select id="f-plan" required>
           <option value="">Select a plan</option>
@@ -1046,7 +1143,12 @@ footer {
 <footer>
   <div class="footer-logo">MissedCall<span>io</span></div>
   <div>© 2026 MissedCallio. All rights reserved.</div>
-  <div>hello@missedcallio.io</div>
+  <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;justify-content:center">
+    <a href="/terms.html" style="color:inherit;text-decoration:none;opacity:.7">Terms</a>
+    <a href="/privacy.html" style="color:inherit;text-decoration:none;opacity:.7">Privacy</a>
+    <a href="/refund.html" style="color:inherit;text-decoration:none;opacity:.7">Refunds</a>
+    <span>hello@missedcallio.io</span>
+  </div>
 </footer>
 
 <script>
@@ -1066,6 +1168,13 @@ footer {
 </script>
 
 <script>
+function toggleOfficeFields() {
+  const val = document.getElementById('f-office-type').value;
+  document.getElementById('office-fields').style.display =
+    (val === 'small_office' || val === 'clinic' || val === 'agency') ? 'block' : 'none';
+}
+
+
 async function handleSignup(e) {
   e.preventDefault();
 
@@ -1086,6 +1195,8 @@ async function handleSignup(e) {
     bizAddress:   document.getElementById('f-address').value.trim(),
     bizPricing:   document.getElementById('f-pricing').value.trim(),
     plan:         document.getElementById('f-plan').value,
+    officeType:   document.getElementById('f-office-type').value,
+    departments:  document.getElementById('f-departments').value.trim() || null,
   };
 
   try {
@@ -1105,7 +1216,11 @@ async function handleSignup(e) {
       return;
     }
 
-    // Success
+    // Success — redirect to Paddle checkout if available, else show success state
+    if (data.checkoutUrl) {
+      window.location.href = data.checkoutUrl;
+      return;
+    }
     document.getElementById('signup-form').style.display = 'none';
     if (data.missedcallNumber) {
       document.getElementById('success-detail').innerHTML =

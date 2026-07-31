@@ -65,16 +65,16 @@ create table if not exists auth_otps (
   created_at timestamptz default now()
 );
 
-create index if not exists auth_otps_lookup_idx on auth_otps (email, expires_at) where used = false;
-create index if not exists businesses_email_idx on businesses (email);
+create index if not exists auth_otps_lookup_idx      on auth_otps (email, expires_at) where used = false;
+create index if not exists businesses_email_idx      on businesses (email);
 create index if not exists leads_business_idx        on leads (business_id, received_at desc);
 create index if not exists calls_business_idx        on calls (business_id, started_at desc);
 create index if not exists appointments_business_idx on appointments (business_id, appointment_time desc);
 create index if not exists appointments_reminder_idx on appointments (appointment_time, reminder_sent) where reminder_sent = false;
-create index if not exists leads_phone_idx        on leads (business_id, phone);
-create index if not exists appointments_phone_idx on appointments (business_id, phone);
+create index if not exists leads_phone_idx           on leads (business_id, phone);
+create index if not exists appointments_phone_idx    on appointments (business_id, phone);
 
--- Feature 1: Staff Directory
+-- Staff directory
 create table if not exists staff (
   id           bigint generated always as identity primary key,
   business_id  uuid references businesses(id) on delete cascade,
@@ -87,28 +87,43 @@ create table if not exists staff (
 );
 create index if not exists staff_business_idx on staff (business_id);
 
--- Feature 2: Slack notifications
+-- Slack notifications
 alter table businesses add column if not exists slack_webhook_url text;
 
--- Feature 3: Team members
+-- Voicemail email
+alter table businesses add column if not exists voicemail_email text;
+
+-- On-hold message
+alter table businesses add column if not exists hold_message text;
+
+-- Paddle billing
+alter table businesses
+  add column if not exists paddle_subscription_id text,
+  add column if not exists paddle_customer_id     text,
+  add column if not exists last_payment_at        timestamptz,
+  add column if not exists cancelled_at           timestamptz;
+
+-- Small-office / team support
+alter table businesses
+  add column if not exists departments  text,
+  add column if not exists team_size    text,
+  add column if not exists office_type  text;
+
+-- Team members (dashboard access + SMS routing)
 create table if not exists team_members (
   id           bigint generated always as identity primary key,
   business_id  uuid references businesses(id) on delete cascade,
-  email        text not null,
   name         text,
   role         text default 'member',
+  phone        text,
+  email        text not null,
+  notify_sms   boolean default true,
   created_at   timestamptz default now(),
   unique(email)
 );
 create index if not exists team_members_email_idx on team_members (email);
+create index if not exists team_members_biz_idx   on team_members (business_id);
 
--- Feature 4: Voicemail email
-alter table businesses add column if not exists voicemail_email text;
-
--- Feature 5: On-hold message
-alter table businesses add column if not exists hold_message text;
-
--- SQL function used by /api/dashboard to count returning callers accurately
 create or replace function count_returning_callers(biz_id uuid)
 returns bigint language sql stable as $$
   select count(*) from (
