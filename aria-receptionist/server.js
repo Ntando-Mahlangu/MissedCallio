@@ -1,6 +1,6 @@
 // =============================================================
 //  MissedCallio — Production SaaS Server
-//  Vapi + Claude + ElevenLabs + Supabase + Twilio
+//  Vapi + Claude + ElevenLabs + Supabase + Twilio + Paddle
 // =============================================================
 
 import express    from 'express';
@@ -47,20 +47,23 @@ app.use(helmet({
       objectSrc:   ["'none'"],
     }
   },
-  frameguard:     { action: 'deny' },   // X-Frame-Options: DENY
+  frameguard:     { action: 'deny' },
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS — public for OPTIONS pre-flight, but never wildcard on credentialled API routes
+// CORS — support comma-separated ALLOWED_ORIGINS; never wildcard on credentialled routes
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const allowed = process.env.ALLOWED_ORIGIN || process.env.SERVER_URL || '*';
-  res.header('Access-Control-Allow-Origin',  allowed === '*' ? '*' : origin === allowed ? origin : '');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  const origin  = req.headers.origin;
+  const rawList = process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || process.env.SERVER_URL || '*';
+  const allowed = rawList === '*' ? ['*'] : rawList.split(',').map(s => s.trim());
+  if (allowed.includes('*') || !origin || allowed.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  }
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
@@ -71,9 +74,9 @@ app.use((req, res, next) => {
 const SAFE_FILES = {
   '/':           'index.html',
   '/dashboard':  'dashboard.html',
-  '/terms':      'terms.html',
-  '/privacy':    'privacy.html',
-  '/refund':     'refund.html',
+  '/terms':      'Terms. html.txt',
+  '/privacy':    'ptivacy. html.txt',
+  '/refund':     'refund. html.txt',
 };
 for (const [route, file] of Object.entries(SAFE_FILES)) {
   app.get(route, (_req, res) => res.sendFile(path.join(__dirname, file)));
@@ -208,6 +211,7 @@ app.post('/signup', signupLimiter, async (req, res) => {
       );
     }
 
+    // Create Paddle checkout if configured
     let checkoutUrl = null;
     if (process.env.PADDLE_API_KEY) {
       try {
@@ -298,7 +302,7 @@ function buildAssistantConfig(business) {
       type: 'function',
       function: {
         name: 'route_to_staff',
-        description: "Look up a staff member the caller wants to reach. Call this when the caller asks to speak to a specific person or department.",
+        description: "Look up a staff member the caller wants to reach.",
         parameters: {
           type: 'object',
           required: ['staff_name'],
@@ -346,10 +350,28 @@ function buildAssistantConfig(business) {
 // =============================================================
 function buildSystemPrompt(business) {
   const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message, departments, office_type } = business;
-  const deptList = departments ? departments.split(',').map(d => d.trim()).filter(Boolean) : [];
+  const canBook = plan === 'growth' || plan === 'pro';
+
+  const deptList = departments
+    ? departments.split(',').map(d => d.trim()).filter(Boolean)
+    : [];
   const hasDepts = deptList.length > 1;
   const isOffice = office_type === 'small_office' || office_type === 'clinic' || office_type === 'agency';
-  const canBook = plan === 'growth' || plan === 'pro';
+
+  const deptRouting = hasDepts ? `
+
+DEPARTMENT ROUTING:
+- After getting the caller's name, ask: "Are you calling for ${deptList.slice(0,-1).join(', ')} or ${deptList.slice(-1)[0]}?"
+- Note their department in the issue field when saving the lead, e.g. "Sales enquiry — needs quote for 50 units"
+- If unsure which department: "No problem — I'll make sure the right person calls you back."` : '';
+
+  const officeContext = isOffice ? `
+
+OFFICE CONTEXT:
+- This is a professional office environment with multiple staff members.
+- If the caller asks to speak to a specific person: "I'll make sure they get your message and call you back directly."
+- If the caller says they've spoken to someone before: "Of course — I'll pass your details straight to them."
+- Never promise to "transfer" or "put them through" — you are the receptionist taking messages.` : '';
 
   return `You are Aria, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
 
@@ -358,12 +380,12 @@ BUSINESS INFORMATION:
 - Address: ${biz_address || 'Please call us for our location'}
 - Pricing: ${biz_pricing || 'Pricing depends on the job — we give free quotes'}
 - Payment: Cash and card accepted
-- Emergencies: Yes — leave your number and someone calls back within 15 minutes
+- Emergencies: Yes — leave your number and someone calls back within 15 minutes${hasDepts ? `\n- Departments: ${deptList.join(', ')}` : ''}
 
-YOUR JOB: Have a natural conversation. Answer questions. Collect name, issue, and callback number.${canBook ? ' You can also book appointments.' : ''}
+YOUR JOB: Have a natural conversation. Answer questions. Collect name, issue${hasDepts ? ', department,' : ''} and callback number.${canBook ? ' You can also book appointments.' : ''}
 
 CONVERSATION FLOW:
-- You already asked for their name. Once they give it, use it naturally.
+- You already asked for their name. Once they give it, use it naturally.${deptRouting}
 - Ask what you can help with today.
 - Listen, show empathy, answer any questions from the business info above.
 - Ask for their callback number including country code (e.g. "Could I get your number with the country code?"). Store it exactly as they say it.${canBook ? `
@@ -371,7 +393,7 @@ CONVERSATION FLOW:
 - If no appointment: collect name, issue, phone and call save_lead.` : `
 - Once you have all three: "Perfect [name], I've got you noted. Someone from ${business_name} will call you back on [number] shortly." Then call save_lead.`}
 - Say a warm goodbye after saving or booking.
-
+${officeContext}
 HANDLING QUESTIONS:
 - Pricing, hours, location: answer directly from business info. Never dodge.
 - Don't know: "Great question — I'll make sure whoever calls you back can answer that."
@@ -379,7 +401,7 @@ HANDLING QUESTIONS:
 - Upset/urgent caller: empathy first. "Oh no, let's get someone to you as fast as we can."
 - NEVER say: cannot help, don't have access, as an AI language model, I apologize for the inconvenience.
 
-STYLE: Warm, natural, human. Contractions always. 1–2 short sentences per reply. This is a phone call.${plan === 'pro' ? '\n\nSTAFF DIRECTORY: If a caller asks to speak to someone specific or reach a department, use the route_to_staff tool. Do NOT guess — let the tool look them up.' : ''}${hasDepts ? `\n\nDEPARTMENT ROUTING: This business has departments: ${deptList.join(', ')}. When the caller mentions a department or type of enquiry, include it in the issue field when calling save_lead (e.g. "Sales enquiry — needs a quote"). The team will be notified accordingly.` : ''}${isOffice ? `\n\nOFFICE CONTEXT: This is a ${office_type.replace('_', ' ')} with multiple staff. Be professional and concise. If the caller asks for a specific person, take their name and issue and assure them the right person will call back.` : ''}${hold_message ? `\n\nON-HOLD MESSAGE: If you ever need to put someone on hold or let them know there's a wait, say: "${hold_message}"` : ''}`;
+STYLE: Warm, natural, human. Contractions always. 1–2 short sentences per reply. This is a phone call.${plan === 'pro' ? '\n\nSTAFF DIRECTORY: If a caller asks to speak to someone specific or reach a department, use the route_to_staff tool. Do NOT guess — let the tool look them up.' : ''}${hold_message ? `\n\nON-HOLD MESSAGE: If you ever need to put someone on hold or let them know there's a wait, say: "${hold_message}"` : ''}`;
 }
 
 // =============================================================
@@ -410,15 +432,18 @@ async function assignPhoneNumber(assistantId, ownerPhone) {
 }
 
 // =============================================================
-//  VAPI WEBHOOK — verify secret, handle events
+//  VAPI WEBHOOK — HMAC verify signature, handle events
 // =============================================================
 app.post('/vapi/webhook/:businessId', async (req, res) => {
-  // Signature check — Vapi sends the secret in x-vapi-secret
-  const webhookSecret = process.env.VAPI_WEBHOOK_SECRET;
-  if (webhookSecret) {
-    const received = req.headers['x-vapi-secret'];
-    if (!received || received !== webhookSecret) {
-      console.warn('[webhook] rejected — bad secret');
+  // HMAC signature check
+  if (process.env.VAPI_WEBHOOK_SECRET) {
+    const sig = req.headers['x-vapi-signature'];
+    const expected = crypto
+      .createHmac('sha256', process.env.VAPI_WEBHOOK_SECRET)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+    if (sig !== expected) {
+      console.warn('[webhook] rejected — bad HMAC signature');
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
@@ -431,9 +456,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
   const callId = call?.id;
 
   try {
-    // ── Tool calls ──
     if (type === 'tool-calls') {
-      // Check subscription before processing
       const { data: biz } = await supabase
         .from('businesses')
         .select('status, trial_ends_at, plan')
@@ -493,7 +516,6 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
         recording_url:    recordingUrl,
       }).eq('id', callId);
 
-      // Voicemail drop — email recording if no lead or appointment was saved
       if (recordingUrl) {
         const { data: biz } = await supabase.from('businesses')
           .select('business_name, email, voicemail_email').eq('id', businessId).single();
@@ -537,7 +559,6 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
   return res.json({ result: 'ok' });
 });
 
-// Returns true if the business's trial has expired and they have not upgraded
 function isExpired(biz) {
   if (biz.status === 'active') return false;
   if (biz.status === 'trial' && biz.trial_ends_at) {
@@ -555,6 +576,12 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   const { data: business } = await supabase
     .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments').eq('id', businessId).single();
 
+  const { data: teamMembers } = await supabase
+    .from('team_members')
+    .select('name, role, phone, notify_sms')
+    .eq('business_id', businessId)
+    .eq('notify_sms', true);
+
   const lead = {
     business_id:   businessId,
     call_id:       callId,
@@ -569,27 +596,21 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (error) console.error('[lead] insert error:', error.message);
 
   if (business) {
-    // Route to matching team members if departments configured
-    const { data: teamMembers } = await supabase
-      .from('team_members')
-      .select('name, role, phone, notify_sms')
-      .eq('business_id', businessId)
-      .eq('notify_sms', true);
-
-    const issueText = (issue || '').toLowerCase();
-    const toNotify = teamMembers?.filter(m =>
-      !m.role || issueText.includes(m.role.toLowerCase())
-    ) || [];
-
-    if (toNotify.length > 0) {
-      await Promise.all(toNotify.map(member => sendSMSToTeamMember(member, business, lead)));
-    } else {
-      await sendSMSToOwner(business, lead);
-    }
+    await sendSMSToOwner(business, lead);
 
     if (business.slack_webhook_url) {
       await sendSlack(business.slack_webhook_url,
         `📞 *New lead — ${business.business_name}*\n*Name:* ${name}\n*Phone:* ${lead.phone}\n*Issue:* ${issue}`);
+    }
+
+    if (teamMembers && teamMembers.length > 0) {
+      const issueLower = (lead.issue || '').toLowerCase();
+      const relevantMembers = teamMembers.filter(m => {
+        if (!m.role) return true;
+        return issueLower.includes(m.role.toLowerCase());
+      });
+      const toNotify = relevantMembers.length > 0 ? relevantMembers : teamMembers;
+      await Promise.all(toNotify.map(member => sendSMSToTeamMember(member, business, lead)));
     }
   }
 
@@ -597,12 +618,15 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   return { success: true };
 }
 
+// =============================================================
+//  SMS TO TEAM MEMBER
+// =============================================================
 async function sendSMSToTeamMember(member, business, lead) {
   if (!process.env.TWILIO_ACCOUNT_SID || !member?.phone) return;
   const time = new Date(lead.received_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
   await sendSMS(
     normalizePhone(member.phone),
-    `New call for you — ${business.business_name}\nFrom: ${lead.name} (${lead.phone})\nIssue: ${lead.issue}\nTime: ${time}`
+    `New lead — ${business.business_name}\nName:  ${lead.name}\nPhone: ${lead.phone}\nIssue: ${lead.issue}\nTime:  ${time}`
   );
 }
 
@@ -668,7 +692,6 @@ app.post('/twilio/sms', async (req, res) => {
     .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${msg}</Message></Response>`);
 
   if (body === 'CANCEL' || body === 'STOP' || body === 'UNSUBSCRIBE') {
-    // Mark the next upcoming appointment for this phone as cancelled
     const normalized = normalizePhone(from);
     const { data: appt } = await supabase
       .from('appointments')
@@ -681,16 +704,13 @@ app.post('/twilio/sms', async (req, res) => {
       .single();
 
     if (appt) {
-      await supabase.from('appointments')
-        .update({ status: 'cancelled' })
-        .eq('id', appt.id);
+      await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appt.id);
       console.log(`[sms] appointment ${appt.id} cancelled by ${normalized}`);
       return twiml(`Your appointment for ${appt.service} on ${formatApptTime(new Date(appt.appointment_time))} has been cancelled. We hope to see you again soon!`);
     }
     return twiml("We couldn't find an upcoming appointment for your number. Please call us directly if you need help.");
   }
 
-  // Ignore other inbound messages silently
   res.set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
 });
 
@@ -771,10 +791,7 @@ async function sendSlack(webhookUrl, text) {
 // =============================================================
 async function routeToStaff(businessId, callId, call, { staff_name }) {
   const { data: members } = await supabase
-    .from('staff')
-    .select('*')
-    .eq('business_id', businessId)
-    .eq('active', true);
+    .from('staff').select('*').eq('business_id', businessId).eq('active', true);
 
   if (!members || members.length === 0) {
     return { found: false, message: "I don't have a staff directory set up yet — let me take a message for the team." };
@@ -791,16 +808,11 @@ async function routeToStaff(businessId, callId, call, { staff_name }) {
     return { found: false, message: `I couldn't find ${staff_name} — the team members I have are: ${names}. Would you like to leave a message for one of them?` };
   }
 
-  // Text the staff member if they have a phone
   if (match.phone && process.env.TWILIO_ACCOUNT_SID) {
     const callerNum = call?.customer?.number || 'unknown';
-    await sendSMS(
-      normalizePhone(match.phone),
-      `MissedCallio: ${callerNum} is on the phone asking for you. Call them back asap.`
-    );
+    await sendSMS(normalizePhone(match.phone), `MissedCallio: ${callerNum} is on the phone asking for you. Call them back asap.`);
   }
 
-  // Email the staff member if they have an email and no phone
   if (match.email && !match.phone && process.env.RESEND_API_KEY) {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -885,7 +897,6 @@ function verifyToken(token) {
     const [businessId, ts, sig] = parts;
     if (Date.now() - Number(ts) > 30 * 24 * 60 * 60 * 1000) return null;
     const expected = crypto.createHmac('sha256', TOKEN_SECRET).update(`${businessId}:${ts}`).digest('hex');
-    // Guard against odd-length or non-hex sig before timingSafeEqual
     const sigBuf = Buffer.from(sig, 'hex');
     const expBuf = Buffer.from(expected, 'hex');
     if (sigBuf.length !== expBuf.length) return null;
@@ -909,14 +920,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required.' });
 
-  // First try businesses table
   let { data: business } = await supabase
-    .from('businesses')
-    .select('id, email')
-    .eq('email', email.toLowerCase().trim())
-    .maybeSingle();
+    .from('businesses').select('id, email').eq('email', email.toLowerCase().trim()).maybeSingle();
 
-  // If not found, check team_members
   if (!business) {
     const { data: member } = await supabase
       .from('team_members').select('business_id, email, name').eq('email', email.toLowerCase().trim()).maybeSingle();
@@ -927,21 +933,15 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
   }
 
-  // Always respond the same way to prevent account enumeration
   if (!business) {
     return res.json({ success: true, message: 'If that email is registered, a code has been sent.' });
   }
 
-  // Generate 6-digit OTP
   const otp     = String(crypto.randomInt(100000, 999999));
-  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-  // Invalidate previous unused OTPs for this email
   await supabase.from('auth_otps').update({ used: true }).eq('email', business.email).eq('used', false);
-
   await supabase.from('auth_otps').insert({ email: business.email, otp, expires_at: expires });
-
-  // Send OTP email
   await sendOTPEmail(business.email, otp);
 
   console.log(`[auth] OTP sent to ${business.email}`);
@@ -968,19 +968,16 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Invalid or expired code. Please request a new one.' });
   }
 
-  // Mark used
   await supabase.from('auth_otps').update({ used: true }).eq('id', record.id);
 
   const normalizedEmail = email.toLowerCase().trim();
 
-  // Look up business by owner email first
   let { data: business } = await supabase
     .from('businesses')
     .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number')
     .eq('email', normalizedEmail)
     .maybeSingle();
 
-  // If not found, check team_members and get the associated business
   if (!business) {
     const { data: member } = await supabase
       .from('team_members').select('business_id, name').eq('email', normalizedEmail).maybeSingle();
@@ -1002,7 +999,7 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
 
 async function sendOTPEmail(email, otp) {
   if (!process.env.RESEND_API_KEY) {
-    console.log(`[auth] OTP for ${email}: ${otp}`);  // dev fallback
+    console.log(`[auth] OTP for ${email}: ${otp}`);
     return;
   }
   try {
@@ -1052,7 +1049,6 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
   const { businessId } = req;
   const page  = Math.max(0, parseInt(req.query.page  || '0'));
   const limit = 200;
-
   const today = new Date().toISOString().slice(0, 10);
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult] = await Promise.all([
@@ -1068,9 +1064,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
     supabase.from('appointments').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('appointment_time', { ascending: false })
       .range(page * limit, page * limit + limit - 1),
-    // Returning callers = phones that appear more than once (SQL DISTINCT count)
     supabase.rpc('count_returning_callers', { biz_id: businessId }),
-    // Today's counts via DB filter
     Promise.all([
       supabase.from('leads').select('id', { count: 'exact', head: true })
         .eq('business_id', businessId).gte('received_at', today),
@@ -1109,9 +1103,9 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
     pagination: {
       page,
       limit,
-      totalLeads:       leadsResult.count  ?? leads.length,
-      totalCalls:       callsResult.count  ?? calls.length,
-      totalAppointments:apptsResult.count  ?? appointments.length,
+      totalLeads:        leadsResult.count  ?? leads.length,
+      totalCalls:        callsResult.count  ?? calls.length,
+      totalAppointments: apptsResult.count  ?? appointments.length,
     }
   });
 });
@@ -1149,11 +1143,11 @@ app.delete('/api/staff/:id', authMiddleware, async (req, res) => {
 });
 
 // =============================================================
-//  TEAM MEMBERS CRUD
+//  TEAM MEMBERS CRUD (authenticated dashboard routes)
 // =============================================================
 app.get('/api/team', authMiddleware, async (req, res) => {
   const { data, error } = await supabase.from('team_members')
-    .select('id, email, name, role, created_at')
+    .select('id, email, name, role, phone, notify_sms, created_at')
     .eq('business_id', req.businessId).order('created_at');
   if (error) return res.status(500).json({ error: error.message });
   res.json({ members: data });
@@ -1206,18 +1200,52 @@ app.post('/api/team', authMiddleware, async (req, res) => {
 
 app.delete('/api/team/:id', authMiddleware, async (req, res) => {
   const { error } = await supabase.from('team_members')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('business_id', req.businessId);
+    .delete().eq('id', req.params.id).eq('business_id', req.businessId);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
+});
+
+// Team member routes (direct businessId param — for webhook / internal use)
+app.post('/team/:businessId', async (req, res) => {
+  const { businessId } = req.params;
+  const { name, role, phone, email, notify_sms } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  const { data, error } = await supabase.from('team_members')
+    .insert({ business_id: businessId, name, role: role || null, phone: phone || null, email: email || null, notify_sms: notify_sms !== false })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, member: data });
+});
+
+app.get('/team/:businessId', async (req, res) => {
+  const { data, error } = await supabase.from('team_members')
+    .select('*').eq('business_id', req.params.businessId).order('created_at');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ members: data });
+});
+
+app.delete('/team/:businessId/:memberId', async (req, res) => {
+  const { error } = await supabase.from('team_members')
+    .delete().eq('id', req.params.memberId).eq('business_id', req.params.businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.patch('/team/:businessId/:memberId', async (req, res) => {
+  const allowed = ['name','role','phone','email','notify_sms'];
+  const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+  const { data, error } = await supabase.from('team_members')
+    .update(updates).eq('id', req.params.memberId).eq('business_id', req.params.businessId)
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, member: data });
 });
 
 // =============================================================
 //  ADMIN ENDPOINTS — header-only key, never query param
 // =============================================================
 function adminAuth(req, res, next) {
-  const key = req.headers['x-admin-key'];  // header only — not query param
+  const key = req.headers['x-admin-key'];
   if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
   next();
 }
@@ -1242,6 +1270,9 @@ app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
   res.json({ total: data.length, calls: data });
 });
 
+// =============================================================
+//  PADDLE BILLING WEBHOOK
+// =============================================================
 app.post('/paddle/webhook', (req, res) => handlePaddleWebhook(req, res, supabase));
 
 app.get('/health', (_req, res) => res.json({
@@ -1275,15 +1306,14 @@ async function runReminderPoller() {
     console.log(`[reminder] ${appts.length} to send`);
 
     for (const appt of appts) {
-      // Optimistic lock — only proceeds if another instance hasn't already claimed it
       const { count } = await supabase
         .from('appointments')
         .update({ reminder_sent: true })
         .eq('id', appt.id)
-        .eq('reminder_sent', false)  // condition: still unset
+        .eq('reminder_sent', false)
         .select('id', { count: 'exact', head: true });
 
-      if (count === 0) continue; // another instance got there first
+      if (count === 0) continue;
 
       const business = appt.businesses;
       if (business) await sendAppointmentReminder(business, appt);
@@ -1296,20 +1326,17 @@ async function runReminderPoller() {
 setInterval(runReminderPoller, 5 * 60 * 1000);
 
 // =============================================================
-//  TRIAL WARNING POLLER — sends day-5 warning email once
+//  TRIAL WARNING POLLER — sends 2-day warning email
 // =============================================================
 async function runTrialWarningPoller() {
   if (!process.env.RESEND_API_KEY) return;
   try {
     const now        = new Date();
-    const windowFrom = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();  // ~48h from now
+    const windowFrom = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
     const windowTo   = new Date(now.getTime() + 2.25 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Find trials expiring in ~48h that haven't been warned yet
-    // We use a simple approach: trial_ends_at in window and status still 'trial'
     const { data: businesses } = await supabase
-      .from('businesses')
-      .select('id, name, email, business_name, plan')
+      .from('businesses').select('id, name, email, business_name, plan')
       .eq('status', 'trial')
       .gte('trial_ends_at', windowFrom)
       .lte('trial_ends_at', windowTo);
@@ -1366,5 +1393,6 @@ app.listen(PORT, () => {
   console.log(`  Vapi     ${process.env.VAPI_API_KEY         ? '✓' : '- not set'}`);
   console.log(`  Twilio   ${process.env.TWILIO_ACCOUNT_SID   ? '✓' : '- not set'}`);
   console.log(`  Email    ${process.env.RESEND_API_KEY       ? '✓' : '- not set'}`);
+  console.log(`  Paddle   ${process.env.PADDLE_API_KEY       ? '✓' : '- not set'}`);
   console.log(`  Webhook  ${process.env.VAPI_WEBHOOK_SECRET  ? '✓' : '- not set (unsecured)'}\n`);
 });
