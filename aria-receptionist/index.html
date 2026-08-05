@@ -1216,19 +1216,24 @@ async function handleSignup(e) {
       return;
     }
 
-    // Success — redirect to Paddle checkout if available, else show success state
-    if (data.checkoutUrl) {
-      window.location.href = data.checkoutUrl;
-      return;
-    }
+    // Success — show buttons for checkout and/or dashboard
     document.getElementById('signup-form').style.display = 'none';
+    let detail = '';
     if (data.missedcallNumber) {
-      document.getElementById('success-detail').innerHTML =
-        `Your MissedCallio number is <strong>${data.missedcallNumber}</strong>.<br/><br/>
+      detail = `Your MissedCallio number is <strong>${data.missedcallNumber}</strong>.<br/><br/>
          Go to your phone settings and forward your calls to that number.<br/>
-         Aria will answer every call from this moment on.<br/><br/>
-         Welcome to MissedCallio! 🎙️`;
+         Aria will answer every call from this moment on.<br/><br/>`;
+    } else {
+      detail = `Check your email for setup instructions. Aria will be answering your calls shortly.<br/><br/>`;
     }
+    let btnHtml = '';
+    if (data.checkoutUrl) {
+      btnHtml += `<a href="${data.checkoutUrl}" style="display:inline-block;background:#ff5c00;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600;margin:8px 8px 0 0">Complete payment →</a>`;
+    }
+    if (data.dashboardUrl) {
+      btnHtml += `<a href="${data.dashboardUrl}" style="display:inline-block;background:#222;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600;margin:8px 0 0 0">Go to your dashboard →</a>`;
+    }
+    document.getElementById('success-detail').innerHTML = detail + btnHtml;
     document.getElementById('success-msg').style.display = 'block';
 
   } catch (err) {

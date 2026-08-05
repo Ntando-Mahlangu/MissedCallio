@@ -1,0 +1,10 @@
+{
+  "name": "MissedCallio",
+  "short_name": "MissedCallio",
+  "description": "Your AI Receptionist Dashboard",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#08080a",
+  "theme_color": "#ff6b00",
+  "icons": []
+}

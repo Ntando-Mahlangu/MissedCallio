@@ -4,6 +4,10 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>MissedCallio — Dashboard</title>
+<meta name="theme-color" content="#ff6b00">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -264,6 +268,28 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
 .stat-value.accent{text-shadow:0 0 20px rgba(255,92,0,.15)}
 .stat-value.green{text-shadow:0 0 20px rgba(0,200,83,.12)}
 
+/* ── BANNERS ── */
+.banner{width:100%;padding:14px 24px;display:flex;align-items:center;gap:14px;font-size:14px;font-weight:500}
+.banner-expired{background:#fee2e2;color:#991b1b}
+.banner-trial{background:#fef3c7;color:#92400e}
+.banner a,.banner button.upgrade-btn{
+  margin-left:auto;white-space:nowrap;background:#ff5c00;color:#fff;border:none;border-radius:99px;
+  padding:7px 18px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;
+  font-family:'DM Sans',sans-serif;
+}
+.onboarding-banner{
+  background:var(--white);border:1.5px solid var(--border);border-radius:var(--radius);
+  padding:20px 24px;margin-bottom:24px;
+  box-shadow:var(--shadow-sm);
+}
+.onboarding-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:12px}
+.onboarding-steps{display:flex;flex-direction:column;gap:8px}
+.onboarding-step{display:flex;align-items:center;gap:10px;font-size:14px}
+.onboarding-step .check{font-size:16px;width:22px;text-align:center}
+.canvas-chart{background:#1c1c1e;border-radius:12px;padding:16px}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+@media(max-width:700px){.charts-row{grid-template-columns:1fr}}
+
 /* ── RESPONSIVE ── */
 @media(max-width:700px){
   main{padding:20px 16px}
@@ -317,9 +343,25 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
     </div>
   </header>
 
+  <!-- STATUS BANNERS (shown above main content) -->
+  <div id="status-banner" style="display:none"></div>
+
   <main>
     <div id="loading"><div class="spinner"></div></div>
     <div id="content" style="display:none">
+
+      <!-- ONBOARDING BANNER -->
+      <div id="onboarding-banner" style="display:none" class="onboarding-banner">
+        <div class="onboarding-title">🚀 Getting Started</div>
+        <div class="onboarding-steps">
+          <div class="onboarding-step"><span class="check">✅</span> Account created</div>
+          <div class="onboarding-step"><span class="check">☐</span> <span>Set up call forwarding — <a href="https://missedcallio.online/#how-it-works" target="_blank" style="color:var(--accent)">view instructions</a></span></div>
+          <div class="onboarding-step"><span class="check">☐</span> Make a test call to your MissedCallio number</div>
+        </div>
+        <div style="margin-top:14px">
+          <button onclick="dismissOnboarding()" style="background:none;border:none;color:var(--gray);font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif">Dismiss</button>
+        </div>
+      </div>
 
       <!-- STATS -->
       <div class="stats-grid">
@@ -348,6 +390,11 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
           <div class="stat-value" id="s-appts" style="color:#7c3aed">—</div>
           <div class="stat-sub" id="s-appts-upcoming"></div>
         </div>
+        <div class="stat-card">
+          <div class="stat-label">Conversion Rate</div>
+          <div class="stat-value green" id="s-conversion">—</div>
+          <div class="stat-sub">leads → appointments</div>
+        </div>
       </div>
 
       <!-- TABS -->
@@ -357,6 +404,7 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
         <button class="tab-btn" id="tab-btn-appointments" onclick="showTab('appointments',this)">Appointments</button>
         <button class="tab-btn" id="tab-btn-staff" onclick="showTab('staff',this)">Staff Directory</button>
         <button class="tab-btn" onclick="showTab('team',this)">Team</button>
+        <button class="tab-btn" onclick="showTab('analytics',this)">Analytics</button>
         <button class="tab-btn" onclick="showTab('info',this)">Account</button>
       </div>
 
@@ -364,7 +412,10 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
       <div id="tab-leads">
         <div class="section-header">
           <span class="section-title">Leads Captured</span>
-          <span class="section-count" id="leads-count"></span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="section-count" id="leads-count"></span>
+            <button class="action-btn" onclick="exportCSV('leads')" style="font-size:12px;padding:6px 14px">Export CSV</button>
+          </div>
         </div>
         <div class="filter-row">
           <input class="filter-input" id="lead-search" placeholder="Search name, phone, or issue…" oninput="renderLeads()"/>
@@ -394,7 +445,10 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
       <div id="tab-calls" style="display:none">
         <div class="section-header">
           <span class="section-title">Call Log</span>
-          <span class="section-count" id="calls-count"></span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="section-count" id="calls-count"></span>
+            <button class="action-btn" onclick="exportCSV('calls')" style="font-size:12px;padding:6px 14px">Export CSV</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -501,6 +555,21 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
         </table>
       </div>
 
+      <!-- ANALYTICS TAB -->
+      <div id="tab-analytics" style="display:none">
+        <div class="section-title" style="margin-bottom:20px">Analytics</div>
+        <div class="charts-row">
+          <div class="canvas-chart">
+            <div style="color:#aaa;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Calls This Week</div>
+            <canvas id="chart-calls-week" width="400" height="200"></canvas>
+          </div>
+          <div class="canvas-chart">
+            <div style="color:#aaa;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Leads vs Appointments</div>
+            <canvas id="chart-leads-appts" width="400" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+
       <!-- ACCOUNT TAB -->
       <div id="tab-info" style="display:none">
         <div class="section-title" style="margin-bottom:16px">Account Details</div>
@@ -548,6 +617,10 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
             <div class="field">
               <label class="login-label">On-hold message (what Aria says if she needs to ask someone to wait)</label>
               <input id="s-hold" class="login-input" type="text" placeholder="Thanks for your patience, we'll be right with you!"/>
+            </div>
+            <div class="field">
+              <label class="login-label">Outbound webhook URL (optional — sends lead and appointment events to Zapier or your system)</label>
+              <input id="s-webhook" class="login-input" type="url" placeholder="https://hooks.zapier.com/hooks/catch/…"/>
             </div>
             <div id="settings-msg" style="display:none;font-size:13px;padding:10px 14px;border-radius:8px"></div>
             <button type="submit" class="login-btn" id="settings-btn" style="max-width:200px">Save changes</button>
@@ -716,6 +789,35 @@ function renderAll() {
   document.getElementById('h-biz-name').textContent = business.business_name;
   setPlanBadge(business.status);
 
+  // Status banners
+  const bannerEl = document.getElementById('status-banner');
+  const SERVER_URL_PRICING = '/#pricing';
+  if (business.status === 'expired') {
+    bannerEl.style.display = 'block';
+    bannerEl.innerHTML = `<div class="banner banner-expired">
+      ⚠️ Your trial has ended. Upgrade to keep Aria answering your calls.
+      <a href="${SERVER_URL_PRICING}">Upgrade now →</a>
+    </div>`;
+  } else if (business.status === 'trial' && business.trial_ends_at) {
+    const daysLeft = Math.ceil((new Date(business.trial_ends_at) - Date.now()) / (86400*1000));
+    if (daysLeft <= 2) {
+      bannerEl.style.display = 'block';
+      bannerEl.innerHTML = `<div class="banner banner-trial">
+        ⏳ Your trial ends in ${daysLeft <= 0 ? 'less than a day' : daysLeft + ' day' + (daysLeft !== 1 ? 's' : '')}.
+        <a href="${SERVER_URL_PRICING}">Upgrade →</a>
+      </div>`;
+    } else {
+      bannerEl.style.display = 'none';
+    }
+  } else {
+    bannerEl.style.display = 'none';
+  }
+
+  // Onboarding banner
+  if (business.onboarding_complete === false) {
+    document.getElementById('onboarding-banner').style.display = 'block';
+  }
+
   const pg = DATA.pagination || {};
   countUp(document.getElementById('s-leads'), stats.totalLeads);
   document.getElementById('s-leads-today').textContent = `${stats.leadsToday} today`;
@@ -728,6 +830,7 @@ function renderAll() {
     : `${leadsShown} result${leadsShown !== 1 ? 's' : ''}`;
   countUp(document.getElementById('s-returning'), stats.returningCallers);
   document.getElementById('s-duration').textContent = stats.avgDuration;
+  document.getElementById('s-conversion').textContent = (stats.conversionRate || '0.0') + '%';
 
   const appts = DATA.appointments || [];
   const now = Date.now();
@@ -796,7 +899,7 @@ function renderCalls() {
       : `<span class="tag tag-missed">In Progress</span>`;
     const dur = c.duration_seconds != null ? `${c.duration_seconds}s` : '—';
     const recLink = c.recording_url
-      ? `<a class="rec-link" href="${esc(c.recording_url)}" target="_blank">▶ Play</a>`
+      ? `<audio controls src="${esc(c.recording_url)}" style="height:32px;width:200px"></audio>`
       : `<span style="color:var(--gray-light);font-size:12px">—</span>`;
     return `<tr>
       <td><a class="phone-link" href="tel:${esc(c.caller_number||'')}">${esc(c.caller_number || 'Unknown')}</a></td>
@@ -843,11 +946,12 @@ function renderAppointments() {
       : (isUpcoming
           ? `<span class="tag" style="background:#fef3c7;color:#92400e">Pending</span>`
           : `<span style="color:var(--gray-light);font-size:12px">—</span>`);
+    const calLink = buildCalendarLink(a);
     return `<tr>
       <td><strong>${esc(a.name || '—')}</strong></td>
       <td><a class="phone-link" href="tel:${esc(a.phone||'')}">${esc(a.phone || '—')}</a></td>
       <td>${esc(a.service || '—')}</td>
-      <td style="white-space:nowrap;font-weight:500">${fmtApptTime(a.appointment_time)}</td>
+      <td style="white-space:nowrap;font-weight:500">${fmtApptTime(a.appointment_time)}<br/><a href="${calLink}" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none">📅 Add to Calendar</a></td>
       <td>${statusTag}</td>
       <td>${reminderTag}</td>
       <td style="color:var(--gray);font-size:13px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.notes || '—')}</td>
@@ -875,13 +979,14 @@ function renderInfo() {
   ].map(([k, v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(v||'—')}</span></div>`).join('');
 
   // Pre-populate settings form
-  document.getElementById('s-hours').value          = b.biz_hours         || '';
-  document.getElementById('s-address').value        = b.biz_address       || '';
-  document.getElementById('s-pricing').value        = b.biz_pricing       || '';
-  document.getElementById('s-mobile').value         = b.mobile_number     || '';
-  document.getElementById('s-slack').value          = b.slack_webhook_url || '';
-  document.getElementById('s-voicemail-email').value = b.voicemail_email  || '';
-  document.getElementById('s-hold').value           = b.hold_message      || '';
+  document.getElementById('s-hours').value          = b.biz_hours              || '';
+  document.getElementById('s-address').value        = b.biz_address            || '';
+  document.getElementById('s-pricing').value        = b.biz_pricing            || '';
+  document.getElementById('s-mobile').value         = b.mobile_number          || '';
+  document.getElementById('s-slack').value          = b.slack_webhook_url      || '';
+  document.getElementById('s-voicemail-email').value = b.voicemail_email       || '';
+  document.getElementById('s-hold').value           = b.hold_message           || '';
+  document.getElementById('s-webhook').value        = b.outbound_webhook_url   || '';
 }
 
 async function saveSettings(e) {
@@ -900,9 +1005,10 @@ async function saveSettings(e) {
         bizAddress:     document.getElementById('s-address').value.trim(),
         bizPricing:     document.getElementById('s-pricing').value.trim(),
         mobileNumber:   document.getElementById('s-mobile').value.trim(),
-        slackWebhookUrl: document.getElementById('s-slack').value.trim(),
-        voicemailEmail:  document.getElementById('s-voicemail-email').value.trim(),
-        holdMessage:     document.getElementById('s-hold').value.trim(),
+        slackWebhookUrl:     document.getElementById('s-slack').value.trim(),
+        voicemailEmail:      document.getElementById('s-voicemail-email').value.trim(),
+        holdMessage:         document.getElementById('s-hold').value.trim(),
+        outboundWebhookUrl:  document.getElementById('s-webhook').value.trim(),
       })
     });
     const d = await r.json();
@@ -924,7 +1030,7 @@ async function saveSettings(e) {
 
 // ── TABS ──
 function showTab(name, btn) {
-  ['leads','calls','appointments','staff','team','info'].forEach(t => {
+  ['leads','calls','appointments','staff','team','analytics','info'].forEach(t => {
     const panel = document.getElementById(`tab-${t}`);
     if (t === name) {
       panel.style.display = 'block';
@@ -937,8 +1043,9 @@ function showTab(name, btn) {
   });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  if (name === 'staff') loadStaff();
-  if (name === 'team')  loadTeam();
+  if (name === 'staff')     loadStaff();
+  if (name === 'team')      loadTeam();
+  if (name === 'analytics') renderCharts();
 }
 
 // ── STAFF ──
@@ -1098,6 +1205,115 @@ function fmtApptTime(iso) {
 function fmtDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+}
+
+// ── ONBOARDING DISMISS ──
+async function dismissOnboarding() {
+  document.getElementById('onboarding-banner').style.display = 'none';
+  const token = localStorage.getItem('mc_token');
+  await fetch('/api/onboarding/complete', { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } });
+}
+
+// ── CSV EXPORT ──
+async function exportCSV(type) {
+  const token = localStorage.getItem('mc_token');
+  const r = await fetch(`/api/${type}/export`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) { alert('Export failed.'); return; }
+  const blob = await r.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `${type}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── GOOGLE CALENDAR LINK ──
+function buildCalendarLink(appt) {
+  const start = new Date(appt.appointment_time);
+  const end   = new Date(start.getTime() + 60*60*1000); // 1 hour default
+  const fmt   = d => d.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
+  const biz   = DATA.business;
+  const title = encodeURIComponent(`${appt.service || 'Appointment'} — ${appt.name}`);
+  const dates = `${fmt(start)}/${fmt(end)}`;
+  const notes = encodeURIComponent(appt.notes || '');
+  const loc   = encodeURIComponent(biz.biz_address || '');
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${dates}&details=${notes}&location=${loc}`;
+}
+
+// ── ANALYTICS CHARTS ──
+function renderCharts() {
+  if (!DATA) return;
+  drawCallsWeekChart();
+  drawLeadsApptChart();
+}
+
+function drawCallsWeekChart() {
+  const canvas = document.getElementById('chart-calls-week');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const days = DATA.callsByDay || [];
+  const W = canvas.offsetWidth || 400;
+  const H = canvas.offsetHeight || 200;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+
+  const maxCount = Math.max(...days.map(d => d.count), 1);
+  const barW = (W - 40) / days.length - 8;
+  const chartH = H - 40;
+
+  days.forEach((d, i) => {
+    const barH = (d.count / maxCount) * chartH;
+    const x = 20 + i * ((W-40)/days.length) + 4;
+    const y = 10 + chartH - barH;
+    ctx.fillStyle = '#ff6b00';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, barW, barH, 4) : ctx.rect(x, y, barW, barH);
+    ctx.fill();
+    // label
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(d.label, x + barW/2, H - 8);
+    if (d.count > 0) {
+      ctx.fillStyle = '#fff';
+      ctx.fillText(d.count, x + barW/2, y - 4);
+    }
+  });
+}
+
+function drawLeadsApptChart() {
+  const canvas = document.getElementById('chart-leads-appts');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const lv  = DATA.stats?.leadVsAppt || { leads: 0, appointments: 0 };
+  const W = canvas.offsetWidth || 400;
+  const H = canvas.offsetHeight || 200;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+
+  const items = [
+    { label: 'Leads', count: lv.leads, color: '#ff6b00' },
+    { label: 'Appointments', count: lv.appointments, color: '#00c853' }
+  ];
+  const maxCount = Math.max(...items.map(d => d.count), 1);
+  const chartH = H - 40;
+  const barW = 60;
+  const spacing = (W - items.length * barW) / (items.length + 1);
+
+  items.forEach((d, i) => {
+    const barH = (d.count / maxCount) * chartH;
+    const x = spacing + i * (barW + spacing);
+    const y = 10 + chartH - barH;
+    ctx.fillStyle = d.color;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, barW, barH, 6) : ctx.rect(x, y, barW, barH);
+    ctx.fill();
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(d.label, x + barW/2, H - 8);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(d.count, x + barW/2, y - 4);
+  });
 }
 
 // ── START ──

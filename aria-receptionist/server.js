@@ -230,10 +230,12 @@ app.post('/signup', signupLimiter, async (req, res) => {
     }
 
     console.log(`[signup] ${businessName} live${phoneNumber ? ' on ' + phoneNumber : ''}`);
+    const dashboardUrl = process.env.SERVER_URL ? process.env.SERVER_URL + '/dashboard' : '/dashboard';
     res.json({
       success: true,
       missedcallNumber: phoneNumber,
       checkoutUrl,
+      dashboardUrl,
       message: phoneNumber
         ? `You're live! Forward your calls to ${phoneNumber}`
         : `You're signed up! Check your email for next steps.`
@@ -629,6 +631,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
 
   const { error } = await supabase.from('leads').insert(lead);
   if (error) console.error('[lead] insert error:', error.message);
+  await fireWebhook(businessId, 'lead.created', lead);
 
   if (business) {
     await sendSMSToOwner(business, lead);
@@ -700,6 +703,7 @@ async function saveAppointment(businessId, callId, call, { name, phone, service,
     return { success: false, error: error.message };
   }
 
+  await fireWebhook(businessId, 'appointment.created', appt);
   console.log(`[appt] booked: ${name} | ${service} | ${formatApptTime(apptTime)}`);
 
   if (business) {
@@ -832,6 +836,21 @@ async function sendSMS(to, body) {
 }
 
 // =============================================================
+//  OUTBOUND WEBHOOK
+// =============================================================
+async function fireWebhook(businessId, event, data) {
+  try {
+    const { data: biz } = await supabase.from('businesses').select('outbound_webhook_url').eq('id', businessId).single();
+    if (!biz?.outbound_webhook_url) return;
+    await fetch(biz.outbound_webhook_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event, data, timestamp: new Date().toISOString() })
+    });
+  } catch (e) { /* silent */ }
+}
+
+// =============================================================
 //  SLACK HELPER
 // =============================================================
 async function sendSlack(webhookUrl, text) {
@@ -928,7 +947,12 @@ async function sendWelcomeEmail(business, phoneNumber) {
           <br/>${instructions}<br/><br/>
           <p>You'll get an SMS at <strong>${business.mobile_number}</strong> every time Aria captures a lead.</p>
           <p>Your <strong>7-day free trial</strong> starts now.</p>
-          <br/><p style="color:#888">— The MissedCallio Team</p>
+          <br/>
+          <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
+             style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
+            Access Your Dashboard →
+          </a>
+          <br/><br/><p style="color:#888">— The MissedCallio Team</p>
         </div>`
       })
     });
@@ -1125,7 +1149,7 @@ async function sendOTPEmail(email, otp) {
 // =============================================================
 app.post('/api/settings', authMiddleware, async (req, res) => {
   const { businessId } = req;
-  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage } = req.body;
+  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl } = req.body;
   const updates = {};
   if (bizHours    !== undefined) updates.biz_hours   = bizHours;
   if (bizAddress  !== undefined) updates.biz_address = bizAddress;
@@ -1134,6 +1158,7 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
   if (slackWebhookUrl !== undefined) updates.slack_webhook_url = slackWebhookUrl || null;
   if (voicemailEmail  !== undefined) updates.voicemail_email   = voicemailEmail  || null;
   if (holdMessage     !== undefined) updates.hold_message      = holdMessage      || null;
+  if (outboundWebhookUrl !== undefined) updates.outbound_webhook_url = outboundWebhookUrl || null;
   if (Object.keys(updates).length === 0) return res.json({ success: true });
   const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
   if (error) return res.status(500).json({ error: error.message });
@@ -1149,9 +1174,11 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
   const limit = 200;
   const today = new Date().toISOString().slice(0, 10);
 
-  const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult] = await Promise.all([
+  const sevenDaysAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+
+  const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -1169,6 +1196,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
       supabase.from('calls').select('id', { count: 'exact', head: true })
         .eq('business_id', businessId).gte('started_at', today),
     ]),
+    supabase.from('calls').select('started_at').eq('business_id', businessId).gte('started_at', sevenDaysAgo),
   ]);
 
   if (bizResult.error) return res.status(500).json({ error: bizResult.error.message });
@@ -1182,6 +1210,17 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
   const leadsWithReturning = leads.map(l => ({ ...l, returning: l.phone && phoneCounts[l.phone] > 1 }));
 
   const [leadsToday, callsToday] = statResult;
+  const recentCalls = recentCallsResult.data || [];
+  const callsByDay = Array.from({length:7}, (_, i) => {
+    const d = new Date(Date.now() - (6-i)*24*60*60*1000);
+    const dateStr = d.toISOString().slice(0,10);
+    return { date: dateStr, label: d.toLocaleDateString('en', {weekday:'short'}), count: recentCalls.filter(c => c.started_at?.slice(0,10) === dateStr).length };
+  });
+
+  const totalLeadsCount = leadsResult.count ?? leads.length;
+  const totalApptsCount = apptsResult.count ?? appointments.length;
+  const conversionRate = totalLeadsCount > 0 ? ((totalApptsCount / totalLeadsCount) * 100).toFixed(1) : '0.0';
+
   const stats = {
     totalLeads:        leadsResult.count       ?? leads.length,
     totalCalls:        callsResult.count       ?? calls.length,
@@ -1190,6 +1229,8 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
     callsToday:        callsToday.count        ?? 0,
     returningCallers:  returningResult.data    ?? Object.values(phoneCounts).filter(n => n > 1).length,
     avgDuration:       calls.length ? Math.round(calls.reduce((s, c) => s + (c.duration_seconds || 0), 0) / calls.length) : 0,
+    conversionRate,
+    leadVsAppt: { leads: totalLeadsCount, appointments: totalApptsCount },
   };
 
   res.json({
@@ -1198,6 +1239,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
     calls,
     appointments,
     stats,
+    callsByDay,
     pagination: {
       page,
       limit,
@@ -1356,6 +1398,56 @@ app.patch('/team/:businessId/:memberId', teamAuthMiddleware, async (req, res) =>
 });
 
 // =============================================================
+//  ONBOARDING COMPLETE
+// =============================================================
+app.patch('/api/onboarding/complete', authMiddleware, async (req, res) => {
+  const { error } = await supabase.from('businesses')
+    .update({ onboarding_complete: true }).eq('id', req.businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+// =============================================================
+//  CSV EXPORT
+// =============================================================
+app.get('/api/leads/export', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase.from('leads').select('*')
+    .eq('business_id', req.businessId).order('received_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const rows = data || [];
+  const header = 'Name,Phone,Issue,Caller Number,Received At\n';
+  const csv = header + rows.map(r =>
+    [r.name, r.phone, r.issue, r.caller_number, r.received_at]
+      .map(v => `"${String(v||'').replace(/"/g,'""')}"`)
+      .join(',')
+  ).join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=leads.csv');
+  res.send(csv);
+});
+
+app.get('/api/calls/export', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase.from('calls').select('*')
+    .eq('business_id', req.businessId).order('started_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const rows = data || [];
+  const header = 'Caller Number,Status,Duration (s),Started At,Ended At,Recording URL\n';
+  const csv = header + rows.map(r =>
+    [r.caller_number, r.status, r.duration_seconds, r.started_at, r.ended_at, r.recording_url]
+      .map(v => `"${String(v||'').replace(/"/g,'""')}"`)
+      .join(',')
+  ).join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=calls.csv');
+  res.send(csv);
+});
+
+// =============================================================
+//  MANIFEST.JSON
+// =============================================================
+app.get('/manifest.json', (_req, res) => res.sendFile('manifest.json', { root: __dirname }));
+
+// =============================================================
 //  ADMIN ENDPOINTS — header-only key, never query param
 // =============================================================
 function adminAuth(req, res, next) {
@@ -1443,6 +1535,47 @@ async function runReminderPoller() {
         .lt('calls_reset_at', monthStart)
         .select('id', { count: 'exact', head: true });
       if (count > 0) console.log(`[poller] monthly call counter reset for ${count} businesses`);
+    }
+
+    // Flip expired trials to 'expired' status
+    if (process.env.RESEND_API_KEY) {
+      const { data: expiredTrials } = await supabase
+        .from('businesses')
+        .update({ status: 'expired' })
+        .eq('status', 'trial')
+        .lt('trial_ends_at', new Date().toISOString())
+        .select('id, email, business_name, name');
+      if (expiredTrials && expiredTrials.length > 0) {
+        const SERVER_URL = process.env.SERVER_URL || 'https://missedcallio.online';
+        for (const biz of expiredTrials) {
+          try {
+            await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+                to: biz.email,
+                subject: 'Your MissedCallio trial has ended',
+                html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+                  <h2 style="color:#ff5c00">Your trial has ended</h2>
+                  <p>Hi ${biz.name || biz.business_name},</p>
+                  <p>Your 7-day free trial for <strong>${biz.business_name}</strong> has ended. Aria is no longer answering your calls.</p>
+                  <p>Upgrade now to keep Aria working for your business.</p>
+                  <br/>
+                  <a href="${SERVER_URL}/#pricing"
+                     style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
+                    Upgrade now →
+                  </a>
+                  <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+                </div>`
+              })
+            });
+            console.log(`[trial-expired] email sent to ${biz.email}`);
+          } catch (err) {
+            console.error(`[trial-expired] email failed for ${biz.email}:`, err.message);
+          }
+        }
+      }
     }
 
     // Hourly OTP cleanup — delete used/expired OTPs older than 1 day

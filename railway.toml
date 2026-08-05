@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "cd aria-receptionist && node server.js"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
