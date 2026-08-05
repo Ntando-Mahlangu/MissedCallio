@@ -34,45 +34,26 @@ export async function createPaddleCheckout(business) {
   }
 
   try {
-    const res = await fetch(`${PADDLE_API}/transactions`, {
-      method: 'POST',
-      headers: {
-        Authorization:  `Bearer ${process.env.PADDLE_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        items: [{
-          price_id: priceId,
-          quantity: 1
-        }],
-        customer: {
-          email: business.email,
-          name:  business.name
-        },
-        custom_data: {
-          business_id:   business.id,
-          business_name: business.business_name,
-          plan:          business.plan
-        },
-        // 7-day trial before first charge
-        billing_details: {
-          enable_checkout: true
-        },
-        collection_mode: 'automatic',
-        // Trial period — Paddle charges after 7 days
-        discount_id: null,
-      })
+    // Use Paddle Billing v2 hosted checkout for subscriptions
+    // Build the hosted checkout URL with the subscription price ID
+    const paddleEnv = process.env.PADDLE_ENV === 'sandbox' ? 'sandbox' : 'production';
+    const baseUrl   = paddleEnv === 'sandbox'
+      ? 'https://sandbox-checkout.paddle.com/checkout/custom/preview'
+      : 'https://checkout.paddle.com/checkout/custom/preview';
+
+    const params = new URLSearchParams({
+      items: JSON.stringify([{ priceId, quantity: 1 }]),
+      customData: JSON.stringify({
+        business_id:   business.id,
+        business_name: business.business_name,
+        plan:          business.plan
+      }),
+      customerEmail: business.email,
     });
 
-    const data = await res.json();
-
-    if (!res.ok) {
-      console.error('Paddle checkout error:', JSON.stringify(data));
-      return null;
-    }
-
-    console.log(`💳 Paddle checkout created for ${business.business_name}`);
-    return data.data?.url || null;
+    const checkoutUrl = `${baseUrl}?${params.toString()}`;
+    console.log(`Paddle hosted checkout URL built for ${business.business_name}`);
+    return checkoutUrl;
 
   } catch (err) {
     console.error('Paddle checkout failed:', err.message);
@@ -90,11 +71,11 @@ export async function createPaddleCheckout(business) {
 //  Events: subscription.activated, subscription.canceled,
 //           subscription.past_due, transaction.completed
 // =============================================================
-export async function handlePaddleWebhook(req, res, supabase) {
+export async function handlePaddleWebhook(req, res, supabase, rawBody) {
   const signature = req.headers['paddle-signature'];
 
-  // Verify webhook is genuinely from Paddle
-  if (!verifyPaddleSignature(req.body, signature)) {
+  // Verify webhook is genuinely from Paddle using raw body bytes
+  if (!verifyPaddleSignature(rawBody, signature)) {
     console.warn('Invalid Paddle webhook signature');
     return res.status(401).json({ error: 'Invalid signature' });
   }
@@ -109,13 +90,29 @@ export async function handlePaddleWebhook(req, res, supabase) {
       case 'subscription.activated': {
         const businessId = data.custom_data?.business_id;
         if (businessId) {
+          const planFromPrice = resolvePlanFromItems(data.items);
           await supabase.from('businesses').update({
-            status:              'active',
+            status:                 'active',
             paddle_subscription_id: data.id,
             paddle_customer_id:     data.customer_id,
+            ...(planFromPrice && { plan: planFromPrice }),
           }).eq('id', businessId);
+          console.log(`Subscription activated for business: ${businessId}`);
+        }
+        break;
+      }
 
-          console.log(`✅ Subscription activated for business: ${businessId}`);
+      // Subscription changed (plan upgrade/downgrade)
+      case 'subscription.updated': {
+        const businessId = data.custom_data?.business_id;
+        if (businessId) {
+          const planFromPrice = resolvePlanFromItems(data.items);
+          await supabase.from('businesses').update({
+            paddle_subscription_id: data.id,
+            ...(planFromPrice && { plan: planFromPrice }),
+            ...(data.status === 'active' && { status: 'active' }),
+          }).eq('id', businessId);
+          console.log(`Subscription updated for business: ${businessId}`);
         }
         break;
       }
@@ -166,11 +163,11 @@ export async function handlePaddleWebhook(req, res, supabase) {
         const businessId = data.custom_data?.business_id;
         if (businessId) {
           await supabase.from('businesses').update({
-            status: 'cancelled',
-            cancelled_at: new Date().toISOString()
+            status:       'cancelled',
+            cancelled_at: new Date().toISOString(),
+            paddle_subscription_id: data.id,
           }).eq('id', businessId);
-
-          console.log(`❌ Subscription cancelled for business: ${businessId}`);
+          console.log(`Subscription cancelled for business: ${businessId}`);
         }
         break;
       }
@@ -188,8 +185,9 @@ export async function handlePaddleWebhook(req, res, supabase) {
 
 // =============================================================
 //  VERIFY PADDLE WEBHOOK SIGNATURE
+//  rawBody must be the raw Buffer captured before JSON parsing
 // =============================================================
-function verifyPaddleSignature(body, signature) {
+function verifyPaddleSignature(rawBody, signature) {
   if (!signature || !process.env.PADDLE_WEBHOOK_SECRET) return false;
 
   try {
@@ -200,7 +198,9 @@ function verifyPaddleSignature(body, signature) {
 
     if (!ts || !h1) return false;
 
-    const payload  = `${ts}:${JSON.stringify(body)}`;
+    // Must use the raw body bytes, not re-serialised JSON
+    const rawStr   = rawBody ? rawBody.toString('utf8') : '';
+    const payload  = `${ts}:${rawStr}`;
     const expected = crypto
       .createHmac('sha256', process.env.PADDLE_WEBHOOK_SECRET)
       .update(payload)
@@ -214,6 +214,21 @@ function verifyPaddleSignature(body, signature) {
     console.error('Signature verification error:', err.message);
     return false;
   }
+}
+
+// =============================================================
+//  RESOLVE PLAN FROM SUBSCRIPTION ITEMS
+// =============================================================
+function resolvePlanFromItems(items) {
+  if (!items || !Array.isArray(items)) return null;
+  for (const item of items) {
+    const priceId = item.price?.id || item.price_id;
+    if (!priceId) continue;
+    for (const [plan, pid] of Object.entries(PRICE_IDS)) {
+      if (pid === priceId) return plan;
+    }
+  }
+  return null;
 }
 
 // =============================================================

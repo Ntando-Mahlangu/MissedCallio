@@ -51,16 +51,22 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // CORS — support comma-separated ALLOWED_ORIGINS; never wildcard on credentialled routes
+const _corsEnvList = process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || process.env.SERVER_URL;
+if (!_corsEnvList) {
+  console.warn('[cors] No ALLOWED_ORIGINS set — falling back to http://localhost:3000 (dev mode)');
+}
 app.use((req, res, next) => {
   const origin  = req.headers.origin;
-  const rawList = process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || process.env.SERVER_URL || '*';
-  const allowed = rawList === '*' ? ['*'] : rawList.split(',').map(s => s.trim());
-  if (allowed.includes('*') || !origin || allowed.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
+  const rawList = _corsEnvList || 'http://localhost:3000';
+  const allowed = rawList.split(',').map(s => s.trim());
+  if (!origin || allowed.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || allowed[0]);
   }
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
@@ -74,13 +80,13 @@ app.use((req, res, next) => {
 const SAFE_FILES = {
   '/':           'index.html',
   '/dashboard':  'dashboard.html',
-  '/terms':      'Terms. html.txt',
-  '/privacy':    'ptivacy. html.txt',
-  '/refund':     'refund. html.txt',
 };
 for (const [route, file] of Object.entries(SAFE_FILES)) {
   app.get(route, (_req, res) => res.sendFile(path.join(__dirname, file)));
 }
+app.get('/terms',   (_req, res) => res.sendFile('terms.html',   { root: __dirname }));
+app.get('/privacy', (_req, res) => res.sendFile('privacy.html', { root: __dirname }));
+app.get('/refund',  (_req, res) => res.sendFile('refund.html',  { root: __dirname }));
 
 // =============================================================
 //  RATE LIMITERS
@@ -110,6 +116,8 @@ function normalizePhone(raw) {
   if (/^\+\d{7,15}$/.test(s)) return s;
   if (s.startsWith('+')) return s;
   if (s.startsWith('00')) return '+' + s.slice(2);
+  // Bare 10-digit US number starting with area code (2-9)
+  if (/^\d{10}$/.test(s) && /^[2-9]/.test(s)) return '+1' + s;
   return s;
 }
 
@@ -290,6 +298,7 @@ function buildAssistantConfig(business) {
             phone:            { type: 'string' },
             service:          { type: 'string', description: "Service or package" },
             appointment_time: { type: 'string', description: "ISO 8601, e.g. 2025-07-15T14:00:00" },
+            timezone:         { type: 'string', description: "IANA timezone, e.g. America/New_York. Use the business timezone if known." },
             notes:            { type: 'string' }
           }
         }
@@ -318,7 +327,7 @@ function buildAssistantConfig(business) {
     name:  `MissedCall — ${business_name}`,
     model: {
       provider:     'anthropic',
-      model:        'claude-sonnet-4-20250514',
+      model:        'claude-sonnet-4-5-20251001',
       systemPrompt: buildSystemPrompt(business),
       temperature:  0.7,
       maxTokens:    250,
@@ -431,11 +440,18 @@ async function assignPhoneNumber(assistantId, ownerPhone) {
   }
 }
 
+if (!process.env.VAPI_WEBHOOK_SECRET) {
+  console.warn('[startup] VAPI_WEBHOOK_SECRET not set — Vapi webhook is unauthenticated');
+}
+
+// Plan call limits
+const PLAN_CALL_LIMITS = { starter: 100, growth: 500 };
+
 // =============================================================
 //  VAPI WEBHOOK — HMAC verify signature, handle events
 // =============================================================
 app.post('/vapi/webhook/:businessId', async (req, res) => {
-  // HMAC signature check
+  // HMAC signature check — always runs when secret is set
   if (process.env.VAPI_WEBHOOK_SECRET) {
     const sig = req.headers['x-vapi-signature'];
     const expected = crypto
@@ -459,7 +475,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
     if (type === 'tool-calls') {
       const { data: biz } = await supabase
         .from('businesses')
-        .select('status, trial_ends_at, plan')
+        .select('status, trial_ends_at, plan, calls_this_month')
         .eq('id', businessId)
         .single();
 
@@ -470,6 +486,19 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
           result: JSON.stringify({ success: false, error: 'Account suspended' })
         }));
         return res.json({ results });
+      }
+
+      // Call volume enforcement
+      if (biz && PLAN_CALL_LIMITS[biz.plan] !== undefined) {
+        const limit = PLAN_CALL_LIMITS[biz.plan];
+        if ((biz.calls_this_month || 0) >= limit) {
+          console.warn(`[webhook] call limit reached for business ${businessId} (plan: ${biz.plan}, count: ${biz.calls_this_month})`);
+          const results = (message.toolCallList || []).map(tc => ({
+            toolCallId: tc.id,
+            result: JSON.stringify({ success: false, message: "We've reached our capacity for this month. Please call back next month or contact us directly — we're sorry for the inconvenience." })
+          }));
+          return res.json({ results });
+        }
       }
 
       const results = [];
@@ -503,6 +532,12 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
         started_at:    new Date().toISOString(),
         status:        'in_progress'
       });
+      // Increment monthly call counter
+      const { data: bizCount } = await supabase.from('businesses')
+        .select('calls_this_month').eq('id', businessId).single();
+      await supabase.from('businesses')
+        .update({ calls_this_month: (bizCount?.calls_this_month || 0) + 1 })
+        .eq('id', businessId);
     }
 
     if (type === 'call-ended') {
@@ -531,7 +566,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
             method: 'POST',
             headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              from: `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+              from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
               to: sendTo,
               subject: `Voicemail from ${callerNum} — ${biz.business_name}`,
               html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -633,14 +668,18 @@ async function sendSMSToTeamMember(member, business, lead) {
 // =============================================================
 //  SAVE APPOINTMENT
 // =============================================================
-async function saveAppointment(businessId, callId, call, { name, phone, service, appointment_time, notes }) {
+async function saveAppointment(businessId, callId, call, { name, phone, service, appointment_time, timezone, notes }) {
   if (!name || !phone || !service || !appointment_time) {
     return { success: false, error: 'Missing required fields' };
   }
 
   const { data: business } = await supabase
-    .from('businesses').select('business_name, mobile_number, biz_address, slack_webhook_url').eq('id', businessId).single();
+    .from('businesses').select('business_name, mobile_number, biz_address, slack_webhook_url, timezone').eq('id', businessId).single();
 
+  // Use provided timezone, or fall back to the business's stored timezone, then UTC
+  const bizTimezone = timezone || business?.timezone || 'UTC';
+  // Parse the appointment time — if it has no offset, treat it as being in bizTimezone
+  // For full correctness a library like luxon is needed; for now we store as-is (UTC assumed from ISO string)
   const apptTime = new Date(appointment_time);
   if (isNaN(apptTime.getTime())) return { success: false, error: 'Invalid appointment_time' };
 
@@ -684,6 +723,28 @@ async function saveAppointment(businessId, callId, call, { name, phone, service,
 //  TWILIO INBOUND SMS — handle CANCEL / STOP replies
 // =============================================================
 app.post('/twilio/sms', async (req, res) => {
+  // Verify Twilio webhook signature
+  const twilioAuthToken  = process.env.TWILIO_AUTH_TOKEN;
+  const twilioWebhookUrl = process.env.TWILIO_WEBHOOK_URL;
+  if (!twilioAuthToken || !twilioWebhookUrl) {
+    console.warn('[twilio/sms] TWILIO_AUTH_TOKEN or TWILIO_WEBHOOK_URL not set — skipping signature verification (dev mode)');
+  } else {
+    const twilioSig = req.headers['x-twilio-signature'] || '';
+    const params    = req.body || {};
+    const sortedStr = Object.keys(params).sort().reduce((acc, k) => acc + k + params[k], '');
+    const expected  = crypto.createHmac('sha1', twilioAuthToken)
+      .update(twilioWebhookUrl + sortedStr)
+      .digest('base64');
+    const expBuf = Buffer.from(expected);
+    const sigBuf = Buffer.from(twilioSig);
+    const valid  = expBuf.length === sigBuf.length && crypto.timingSafeEqual(expBuf, sigBuf);
+    if (!valid) {
+      console.warn('[twilio/sms] rejected — bad Twilio signature');
+      return res.status(403).set('Content-Type', 'text/xml')
+        .send(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
+    }
+  }
+
   const from = req.body.From || '';
   const body = (req.body.Body || '').trim().toUpperCase();
 
@@ -818,7 +879,7 @@ async function routeToStaff(businessId, callId, call, { staff_name }) {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
         to: match.email,
         subject: `Someone is asking for you`,
         html: `<p>A caller is on the line asking for you (${match.name}). Caller number: ${call?.customer?.number || 'unknown'}.</p>`
@@ -857,7 +918,7 @@ async function sendWelcomeEmail(business, phoneNumber) {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    `MissedCall <hello@${process.env.EMAIL_DOMAIN || 'missedcall.io'}>`,
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
         to:      business.email,
         subject: `You're live on MissedCallio!`,
         html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -883,36 +944,54 @@ async function sendWelcomeEmail(business, phoneNumber) {
 // =============================================================
 const TOKEN_SECRET = process.env.TOKEN_SECRET;
 
-function signToken(businessId) {
-  const payload = `${businessId}:${Date.now()}`;
-  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex');
-  return Buffer.from(`${payload}:${sig}`).toString('base64url');
+async function signToken(businessId) {
+  const jti = crypto.randomBytes(16).toString('hex');
+  const ts  = Date.now();
+  const payload  = `${businessId}:${ts}:${jti}`;
+  const sig      = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex');
+  const token    = Buffer.from(`${payload}:${sig}`).toString('base64url');
+  const expiresAt = new Date(ts + 30 * 24 * 60 * 60 * 1000).toISOString();
+  await supabase.from('auth_sessions').insert({ business_id: businessId, jti, expires_at: expiresAt });
+  return token;
 }
 
-function verifyToken(token) {
+async function verifyToken(token) {
   try {
     const decoded = Buffer.from(token, 'base64url').toString();
     const parts   = decoded.split(':');
-    if (parts.length !== 3) return null;
-    const [businessId, ts, sig] = parts;
+    if (parts.length !== 4) return null;
+    const [businessId, ts, jti, sig] = parts;
     if (Date.now() - Number(ts) > 30 * 24 * 60 * 60 * 1000) return null;
-    const expected = crypto.createHmac('sha256', TOKEN_SECRET).update(`${businessId}:${ts}`).digest('hex');
+    const expected = crypto.createHmac('sha256', TOKEN_SECRET).update(`${businessId}:${ts}:${jti}`).digest('hex');
     const sigBuf = Buffer.from(sig, 'hex');
     const expBuf = Buffer.from(expected, 'hex');
     if (sigBuf.length !== expBuf.length) return null;
     if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+    // Check session is still active (not revoked)
+    const { data: session } = await supabase
+      .from('auth_sessions')
+      .select('id')
+      .eq('jti', jti)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+    if (!session) return null;
     return businessId;
   } catch {
     return null;
   }
 }
 
-function authMiddleware(req, res, next) {
-  const token      = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
-  const businessId = token ? verifyToken(token) : null;
-  if (!businessId) return res.status(401).json({ error: 'Unauthorized' });
-  req.businessId = businessId;
-  next();
+async function authMiddleware(req, res, next) {
+  try {
+    const token      = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+    const businessId = token ? await verifyToken(token) : null;
+    if (!businessId) return res.status(401).json({ error: 'Unauthorized' });
+    req.businessId = businessId;
+    next();
+  } catch (err) {
+    console.error('[auth] middleware error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 }
 
 // Step 1 — request OTP
@@ -992,9 +1071,28 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
 
   if (!business) return res.status(404).json({ error: 'Account not found.' });
 
-  const token = signToken(business.id);
+  const token = await signToken(business.id);
   console.log(`[auth] login verified: ${business.email}`);
   res.json({ success: true, token, business });
+});
+
+// Logout — revoke session by deleting the jti
+app.delete('/auth/session', authMiddleware, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+    if (token) {
+      const decoded = Buffer.from(token, 'base64url').toString();
+      const parts   = decoded.split(':');
+      if (parts.length === 4) {
+        const jti = parts[2];
+        await supabase.from('auth_sessions').delete().eq('jti', jti);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[auth] logout error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 async function sendOTPEmail(email, otp) {
@@ -1007,7 +1105,7 @@ async function sendOTPEmail(email, otp) {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    `MissedCall <hello@${process.env.EMAIL_DOMAIN || 'missedcall.io'}>`,
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
         to:      email,
         subject: `Your MissedCallio login code: ${otp}`,
         html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
@@ -1176,7 +1274,7 @@ app.post('/api/team', authMiddleware, async (req, res) => {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
         to: email,
         subject: `You've been added to ${biz?.business_name || 'a MissedCallio account'}`,
         html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -1205,8 +1303,24 @@ app.delete('/api/team/:id', authMiddleware, async (req, res) => {
   res.json({ success: true });
 });
 
-// Team member routes (direct businessId param — for webhook / internal use)
-app.post('/team/:businessId', async (req, res) => {
+// Middleware for /team/:businessId routes — verifies JWT and that decoded business_id matches param
+async function teamAuthMiddleware(req, res, next) {
+  try {
+    const token          = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const tokenBusinessId = await verifyToken(token);
+    if (!tokenBusinessId) return res.status(401).json({ error: 'Unauthorized' });
+    if (tokenBusinessId !== req.params.businessId) return res.status(403).json({ error: 'Forbidden' });
+    req.businessId = tokenBusinessId;
+    next();
+  } catch (err) {
+    console.error('[team-auth] error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Team member routes (direct businessId param — authenticated)
+app.post('/team/:businessId', teamAuthMiddleware, async (req, res) => {
   const { businessId } = req.params;
   const { name, role, phone, email, notify_sms } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required.' });
@@ -1217,21 +1331,21 @@ app.post('/team/:businessId', async (req, res) => {
   res.json({ success: true, member: data });
 });
 
-app.get('/team/:businessId', async (req, res) => {
+app.get('/team/:businessId', teamAuthMiddleware, async (req, res) => {
   const { data, error } = await supabase.from('team_members')
     .select('*').eq('business_id', req.params.businessId).order('created_at');
   if (error) return res.status(500).json({ error: error.message });
   res.json({ members: data });
 });
 
-app.delete('/team/:businessId/:memberId', async (req, res) => {
+app.delete('/team/:businessId/:memberId', teamAuthMiddleware, async (req, res) => {
   const { error } = await supabase.from('team_members')
     .delete().eq('id', req.params.memberId).eq('business_id', req.params.businessId);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });
 
-app.patch('/team/:businessId/:memberId', async (req, res) => {
+app.patch('/team/:businessId/:memberId', teamAuthMiddleware, async (req, res) => {
   const allowed = ['name','role','phone','email','notify_sms'];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   const { data, error } = await supabase.from('team_members')
@@ -1251,7 +1365,9 @@ function adminAuth(req, res, next) {
 }
 
 app.get('/admin/businesses', adminAuth, async (_req, res) => {
-  const { data, error } = await supabase.from('businesses').select('*').order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('businesses')
+    .select('id, name, email, business_name, plan, status, trial_ends_at, created_at, industry')
+    .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ total: data.length, businesses: data });
 });
@@ -1273,7 +1389,7 @@ app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
 // =============================================================
 //  PADDLE BILLING WEBHOOK
 // =============================================================
-app.post('/paddle/webhook', (req, res) => handlePaddleWebhook(req, res, supabase));
+app.post('/paddle/webhook', (req, res) => handlePaddleWebhook(req, res, supabase, req.rawBody));
 
 app.get('/health', (_req, res) => res.json({
   status:  'ok',
@@ -1288,49 +1404,67 @@ app.get('/health', (_req, res) => res.json({
 //  REMINDER POLLER — distributed-safe via optimistic DB lock
 // =============================================================
 async function runReminderPoller() {
-  if (!process.env.TWILIO_ACCOUNT_SID) return;
   try {
-    const now  = new Date();
-    const from = new Date(now.getTime() + 23 * 60 * 60 * 1000).toISOString();
-    const to   = new Date(now.getTime() + 25 * 60 * 60 * 1000).toISOString();
+    if (process.env.TWILIO_ACCOUNT_SID) {
+      const now  = new Date();
+      const from = new Date(now.getTime() + 23 * 60 * 60 * 1000).toISOString();
+      const to   = new Date(now.getTime() + 25 * 60 * 60 * 1000).toISOString();
 
-    const { data: appts } = await supabase
-      .from('appointments')
-      .select('*, businesses(business_name, mobile_number, biz_address)')
-      .eq('reminder_sent', false)
-      .eq('status', 'confirmed')
-      .gte('appointment_time', from)
-      .lte('appointment_time', to);
-
-    if (!appts || appts.length === 0) return;
-    console.log(`[reminder] ${appts.length} to send`);
-
-    for (const appt of appts) {
-      const { count } = await supabase
+      const { data: appts } = await supabase
         .from('appointments')
-        .update({ reminder_sent: true })
-        .eq('id', appt.id)
+        .select('*, businesses(business_name, mobile_number, biz_address)')
         .eq('reminder_sent', false)
-        .select('id', { count: 'exact', head: true });
+        .eq('status', 'confirmed')
+        .gte('appointment_time', from)
+        .lte('appointment_time', to);
 
-      if (count === 0) continue;
-
-      const business = appt.businesses;
-      if (business) await sendAppointmentReminder(business, appt);
+      if (appts && appts.length > 0) {
+        console.log(`[reminder] ${appts.length} to send`);
+        for (const appt of appts) {
+          const { data: updated } = await supabase
+            .from('appointments')
+            .update({ reminder_sent: true })
+            .eq('id', appt.id)
+            .eq('reminder_sent', false)
+            .select('id');
+          if (!updated || updated.length === 0) continue; // another instance beat us
+          const business = appt.businesses;
+          if (business) await sendAppointmentReminder(business, appt);
+        }
+      }
     }
+
+    // Monthly call counter reset — runs on the 1st of the month (within first hour)
+    const now = new Date();
+    if (now.getDate() === 1 && now.getHours() < 1) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const { count } = await supabase.from('businesses')
+        .update({ calls_this_month: 0, calls_reset_at: monthStart })
+        .lt('calls_reset_at', monthStart)
+        .select('id', { count: 'exact', head: true });
+      if (count > 0) console.log(`[poller] monthly call counter reset for ${count} businesses`);
+    }
+
+    // Hourly OTP cleanup — delete used/expired OTPs older than 1 day
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from('auth_otps').delete()
+      .lt('expires_at', cutoff)
+      .eq('used', true);
+
   } catch (err) {
     console.error('[reminder] poller error:', err.message);
   }
 }
 
 setInterval(runReminderPoller, 5 * 60 * 1000);
+console.log('[startup] Reminder poller started');
 
 // =============================================================
 //  TRIAL WARNING POLLER — sends 2-day warning email
 // =============================================================
 async function runTrialWarningPoller() {
-  if (!process.env.RESEND_API_KEY) return;
   try {
+    if (!process.env.RESEND_API_KEY) return;
     const now        = new Date();
     const windowFrom = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
     const windowTo   = new Date(now.getTime() + 2.25 * 24 * 60 * 60 * 1000).toISOString();
@@ -1349,7 +1483,7 @@ async function runTrialWarningPoller() {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from:    `MissedCallio <hello@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
             to:      biz.email,
             subject: `Your MissedCallio trial ends in 2 days`,
             html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">

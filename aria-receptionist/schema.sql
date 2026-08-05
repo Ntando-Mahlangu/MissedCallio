@@ -132,3 +132,24 @@ returns bigint language sql stable as $$
     group by phone having count(*) > 1
   ) sub;
 $$;
+
+-- Call volume tracking
+alter table businesses add column if not exists calls_this_month int default 0;
+alter table businesses add column if not exists calls_reset_at timestamptz default date_trunc('month', now());
+
+-- Timezone support for appointments
+alter table businesses add column if not exists timezone text default 'UTC';
+
+-- Paddle subscription index
+create index if not exists businesses_paddle_sub_idx on businesses (paddle_subscription_id);
+
+-- Session table for JWT revocation (jti nonce)
+create table if not exists auth_sessions (
+  id          bigint generated always as identity primary key,
+  business_id uuid references businesses(id) on delete cascade,
+  jti         text not null unique,
+  expires_at  timestamptz not null,
+  created_at  timestamptz default now()
+);
+create index if not exists auth_sessions_jti_idx on auth_sessions (jti);
+create index if not exists auth_sessions_biz_idx on auth_sessions (business_id);
