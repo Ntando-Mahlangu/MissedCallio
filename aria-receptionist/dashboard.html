@@ -365,6 +365,14 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
         </div>
       </div>
 
+      <!-- ARIA STATUS BAR -->
+      <div id="aria-status-bar" style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;margin-bottom:20px;box-shadow:var(--shadow-sm)">
+        <span id="aria-dot" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0"></span>
+        <span id="aria-status-text" style="font-size:14px;font-weight:500">Aria is answering calls</span>
+        <button id="aria-pause-btn" onclick="toggleAriaPause()" style="margin-left:auto;background:none;border:1.5px solid var(--border);border-radius:8px;padding:6px 14px;font-size:13px;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .2s">Pause Aria</button>
+        <button id="manage-billing-btn" onclick="openBillingPortal()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-family:'DM Sans',sans-serif;cursor:pointer;display:none">Manage billing →</button>
+      </div>
+
       <!-- STATS -->
       <div class="stats-grid">
         <div class="stat-card">
@@ -842,6 +850,33 @@ function renderAll() {
     document.getElementById('onboarding-banner').style.display = 'block';
   }
 
+  // Aria status bar
+  const dot  = document.getElementById('aria-dot');
+  const stxt = document.getElementById('aria-status-text');
+  const pbtn = document.getElementById('aria-pause-btn');
+  const bbtn = document.getElementById('manage-billing-btn');
+  if (business.aria_paused) {
+    dot.style.background = '#f59e0b';
+    stxt.textContent = 'Aria is paused — calls are not being answered';
+    pbtn.textContent = 'Resume Aria';
+    pbtn.style.borderColor = 'var(--green)';
+    pbtn.style.color = 'var(--green)';
+  } else {
+    dot.style.background = 'var(--green)';
+    stxt.textContent = 'Aria is answering calls';
+    pbtn.textContent = 'Pause Aria';
+    pbtn.style.borderColor = 'var(--border)';
+    pbtn.style.color = 'inherit';
+  }
+  _ariaPaused = !!business.aria_paused;
+  // Show billing portal link for paying customers
+  if (business.status === 'active' || business.status === 'past_due') {
+    bbtn.style.display = '';
+  } else if (business.status === 'trial') {
+    bbtn.textContent = 'Add payment method →';
+    bbtn.style.display = '';
+  }
+
   const pg = DATA.pagination || {};
   countUp(document.getElementById('s-leads'), stats.totalLeads);
   document.getElementById('s-leads-today').textContent = `${stats.leadsToday} today`;
@@ -889,7 +924,15 @@ function renderLeads() {
 
   const tbody = document.getElementById('leads-tbody');
   if (!leads.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No leads found.</td></tr>`;
+    const totalLeads = DATA.stats?.totalLeads || 0;
+    const msg = totalLeads === 0
+      ? `<tr><td colspan="6" style="text-align:center;padding:48px 24px;color:var(--gray)">
+          <div style="font-size:32px;margin-bottom:12px">📞</div>
+          <div style="font-weight:600;margin-bottom:6px">No leads yet</div>
+          <div style="font-size:13px">Make a test call to your MissedCallio number and Aria will capture it here.</div>
+         </td></tr>`
+      : `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--gray);font-size:13px">No leads match your search.</td></tr>`;
+    tbody.innerHTML = msg;
     return;
   }
 
@@ -913,7 +956,11 @@ function renderCalls() {
 
   const tbody = document.getElementById('calls-tbody');
   if (!calls.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No calls recorded yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:48px 24px;color:var(--gray)">
+      <div style="font-size:32px;margin-bottom:12px">🔇</div>
+      <div style="font-weight:600;margin-bottom:6px">No calls yet</div>
+      <div style="font-size:13px">Forward missed calls to your MissedCallio number to see them here.</div>
+    </td></tr>`;
     return;
   }
 
@@ -1340,6 +1387,46 @@ function drawLeadsApptChart() {
     ctx.fillStyle = '#fff';
     ctx.fillText(d.count, x + barW/2, y - 4);
   });
+}
+
+// ── PAUSE / RESUME ARIA ──
+let _ariaPaused = false;
+async function toggleAriaPause() {
+  const token = localStorage.getItem('mc_token');
+  const btn   = document.getElementById('aria-pause-btn');
+  btn.disabled = true;
+  try {
+    const endpoint = _ariaPaused ? '/api/aria/resume' : '/api/aria/pause';
+    const r = await fetch(endpoint, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    if (d.success) {
+      _ariaPaused = d.paused;
+      // Update state from fresh data
+      await loadDashboard(true);
+    } else {
+      alert(d.error || 'Failed. Please try again.');
+    }
+  } catch { alert('Network error. Please try again.'); }
+  btn.disabled = false;
+}
+
+// ── BILLING PORTAL ──
+async function openBillingPortal() {
+  const token = localStorage.getItem('mc_token');
+  const btn   = document.getElementById('manage-billing-btn');
+  btn.textContent = 'Opening…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/subscription/portal', { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    if (d.url) {
+      window.open(d.url, '_blank');
+    } else {
+      alert(d.error || 'Could not open billing portal. Contact support@missedcallio.io.');
+    }
+  } catch { alert('Network error. Please try again.'); }
+  btn.textContent = DATA?.business?.status === 'trial' ? 'Add payment method →' : 'Manage billing →';
+  btn.disabled = false;
 }
 
 // ── DELETE ACCOUNT ──

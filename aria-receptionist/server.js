@@ -480,9 +480,17 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
     if (type === 'tool-calls') {
       const { data: biz } = await supabase
         .from('businesses')
-        .select('status, trial_ends_at, plan, calls_this_month')
+        .select('status, trial_ends_at, plan, calls_this_month, aria_paused')
         .eq('id', businessId)
         .single();
+
+      if (biz?.aria_paused) {
+        const results = (message.toolCallList || []).map(tc => ({
+          toolCallId: tc.id,
+          result: JSON.stringify({ success: false, message: "I'm sorry, our team is temporarily unavailable. Please call back later or leave a message." })
+        }));
+        return res.json({ results });
+      }
 
       if (biz && isExpired(biz)) {
         console.warn(`[webhook] suspended business ${businessId}`);
@@ -635,6 +643,46 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   const { error } = await supabase.from('leads').insert(lead);
   if (error) console.error('[lead] insert error:', error.message);
   await fireWebhook(businessId, 'lead.created', lead);
+
+  // First-lead milestone email
+  if (!error && process.env.RESEND_API_KEY) {
+    const { count: totalLeads } = await supabase.from('leads')
+      .select('id', { count: 'exact', head: true }).eq('business_id', businessId);
+    if (totalLeads === 1) {
+      const { data: biz } = await supabase.from('businesses')
+        .select('email, name, business_name').eq('id', businessId).single();
+      if (biz) {
+        fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            to:      biz.email,
+            subject: `🎉 Aria just captured your first lead — ${lead.name}`,
+            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+              <h2 style="color:#ff5c00">Your first lead is in!</h2>
+              <p>Hi ${biz.name},</p>
+              <p>Aria just answered a call for <strong>${biz.business_name}</strong> and captured your first lead:</p>
+              <table style="width:100%;margin:20px 0;border-collapse:collapse">
+                <tr><td style="padding:8px 0;color:#888;font-size:14px">Name</td><td style="padding:8px 0;font-weight:500">${lead.name}</td></tr>
+                <tr><td style="padding:8px 0;color:#888;font-size:14px">Phone</td><td style="padding:8px 0;font-weight:500">${lead.phone}</td></tr>
+                <tr><td style="padding:8px 0;color:#888;font-size:14px">Reason</td><td style="padding:8px 0;font-weight:500">${lead.issue}</td></tr>
+              </table>
+              <p>Every missed call from here on is a captured lead. Check your dashboard to see more.</p>
+              <br/>
+              <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
+                 style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
+                View Dashboard →
+              </a>
+              <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+              ${emailFooter(biz.email)}
+            </div>`
+          })
+        }).catch(() => {});
+        console.log(`[milestone] first-lead email sent to ${biz.email}`);
+      }
+    }
+  }
 
   if (business) {
     await sendSMSToOwner(business, lead);
@@ -839,18 +887,32 @@ async function sendSMS(to, body) {
 }
 
 // =============================================================
-//  OUTBOUND WEBHOOK
+//  OUTBOUND WEBHOOK — with retry (3 attempts, exponential backoff)
 // =============================================================
 async function fireWebhook(businessId, event, data) {
   try {
     const { data: biz } = await supabase.from('businesses').select('outbound_webhook_url').eq('id', businessId).single();
     if (!biz?.outbound_webhook_url) return;
-    await fetch(biz.outbound_webhook_url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event, data, timestamp: new Date().toISOString() })
-    });
-  } catch (e) { /* silent */ }
+    const payload = JSON.stringify({ event, data, timestamp: new Date().toISOString() });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const r = await fetch(biz.outbound_webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.ok) return;
+        console.warn(`[webhook] attempt ${attempt} got ${r.status}`);
+      } catch (fetchErr) {
+        console.warn(`[webhook] attempt ${attempt} failed: ${fetchErr.message}`);
+      }
+      if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 2000));
+    }
+    console.error(`[webhook] all 3 attempts failed for ${businessId}`);
+  } catch (e) {
+    console.error('[webhook] error:', e.message);
+  }
 }
 
 // =============================================================
@@ -1235,7 +1297,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -1539,9 +1601,47 @@ app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
 });
 
 // =============================================================
+//  PAUSE / RESUME ARIA
+// =============================================================
+app.post('/api/aria/pause', authMiddleware, async (req, res) => {
+  const { error } = await supabase.from('businesses').update({ aria_paused: true }).eq('id', req.businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, paused: true });
+});
+
+app.post('/api/aria/resume', authMiddleware, async (req, res) => {
+  const { error } = await supabase.from('businesses').update({ aria_paused: false }).eq('id', req.businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, paused: false });
+});
+
+// =============================================================
 //  PADDLE BILLING WEBHOOK
 // =============================================================
 app.post('/paddle/webhook', (req, res) => handlePaddleWebhook(req, res, supabase, req.rawBody));
+
+app.get('/api/subscription/portal', authMiddleware, async (req, res) => {
+  if (!process.env.PADDLE_API_KEY) return res.status(503).json({ error: 'Billing not configured.' });
+  const { data: biz } = await supabase.from('businesses')
+    .select('paddle_customer_id, paddle_subscription_id, plan').eq('id', req.businessId).single();
+  if (!biz?.paddle_customer_id) {
+    return res.status(400).json({ error: 'No billing account found. Complete your trial setup first.' });
+  }
+  try {
+    const paddleEnv = process.env.PADDLE_ENV === 'sandbox' ? 'sandbox' : 'production';
+    const apiBase   = paddleEnv === 'sandbox' ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
+    const r = await fetch(`${apiBase}/customers/${biz.paddle_customer_id}/portal-sessions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.PADDLE_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription_ids: biz.paddle_subscription_id ? [biz.paddle_subscription_id] : [] }),
+    });
+    const data = await r.json();
+    if (!r.ok) return res.status(500).json({ error: 'Could not open billing portal. Please contact support.' });
+    res.json({ url: data.data?.urls?.general?.overview || data.data?.url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/api/subscription/cancel', authMiddleware, async (req, res) => {
   const { data: biz } = await supabase.from('businesses')
@@ -1763,6 +1863,77 @@ async function runTrialWarningPoller() {
 }
 
 setInterval(runTrialWarningPoller, 60 * 60 * 1000);  // hourly
+
+// =============================================================
+//  WEEKLY DIGEST POLLER — Monday 8am UTC per business timezone
+// =============================================================
+async function runWeeklyDigestPoller() {
+  try {
+    if (!process.env.RESEND_API_KEY) return;
+    const now = new Date();
+    // Only run on Mondays between 8:00 and 8:59 UTC
+    if (now.getUTCDay() !== 1 || now.getUTCHours() !== 8) return;
+
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: businesses } = await supabase
+      .from('businesses')
+      .select('id, name, email, business_name, status')
+      .in('status', ['active', 'trial']);
+
+    if (!businesses?.length) return;
+
+    for (const biz of businesses) {
+      try {
+        const [{ count: newLeads }, { count: newCalls }] = await Promise.all([
+          supabase.from('leads').select('id', { count: 'exact', head: true })
+            .eq('business_id', biz.id).gte('received_at', weekAgo),
+          supabase.from('calls').select('id', { count: 'exact', head: true })
+            .eq('business_id', biz.id).gte('started_at', weekAgo),
+        ]);
+
+        if (!newLeads && !newCalls) continue; // skip quiet weeks
+
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            to:      biz.email,
+            subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
+            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+              <h2 style="color:#ff5c00">Your weekly summary</h2>
+              <p>Hi ${biz.name}, here's what Aria did for <strong>${biz.business_name}</strong> this week:</p>
+              <table style="width:100%;margin:24px 0;border-collapse:collapse">
+                <tr style="background:#f7f6f3">
+                  <td style="padding:14px 18px;font-size:15px">📞 Calls answered</td>
+                  <td style="padding:14px 18px;font-size:22px;font-weight:700;text-align:right">${newCalls || 0}</td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 18px;font-size:15px">👤 Leads captured</td>
+                  <td style="padding:14px 18px;font-size:22px;font-weight:700;text-align:right;color:#ff5c00">${newLeads || 0}</td>
+                </tr>
+              </table>
+              <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
+                 style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
+                View full dashboard →
+              </a>
+              <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+              ${emailFooter(biz.email)}
+            </div>`
+          })
+        });
+        console.log(`[weekly-digest] sent to ${biz.email}`);
+      } catch (err) {
+        console.error(`[weekly-digest] failed for ${biz.email}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[weekly-digest] poller error:', err.message);
+  }
+}
+
+setInterval(runWeeklyDigestPoller, 60 * 60 * 1000);  // hourly (runs only on Monday 8am UTC)
 
 // =============================================================
 //  START
