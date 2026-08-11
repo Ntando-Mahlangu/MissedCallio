@@ -7,6 +7,11 @@
 <meta name="description" content="MissedCallio gives your business a 24/7 AI receptionist named Aria. She answers every call, captures leads, books appointments, and sends you an SMS — so you never miss a customer again."/>
 <meta name="robots" content="index, follow"/>
 <link rel="canonical" href="https://missedcallio.online/"/>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
 <!-- Open Graph -->
 <meta property="og:type" content="website"/>
 <meta property="og:url" content="https://missedcallio.online/"/>
@@ -65,7 +70,9 @@ nav {
   border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
+.logo-mark { height: 24px; width: 24px; border-radius: 6px; display: block; }
 .logo {
+  display: flex; align-items: center; gap: 8px;
   font-family: 'Syne', sans-serif;
   font-size: 22px; font-weight: 800;
   letter-spacing: -0.5px;
@@ -672,6 +679,7 @@ footer {
 }
 
 .footer-logo {
+  display: flex; align-items: center; gap: 8px;
   font-family: 'Syne', sans-serif;
   font-size: 18px; font-weight: 800;
   color: rgba(255,255,255,0.8);
@@ -715,7 +723,7 @@ footer {
 
 <!-- NAV -->
 <nav>
-  <div class="logo">MissedCall<span>io</span></div>
+  <div class="logo"><img class="logo-mark" src="/logo.png" alt="" width="24" height="24">MissedCall<span>io</span></div>
   <div class="nav-links">
     <a href="#who">Who it's for</a>
     <a href="#how">How it works</a>
@@ -1303,7 +1311,7 @@ function toggleFaq(btn) {
 
 <!-- FOOTER -->
 <footer>
-  <div class="footer-logo">MissedCall<span>io</span></div>
+  <div class="footer-logo"><img class="logo-mark" src="/logo.png" alt="" width="20" height="20" style="height:20px;width:20px;">MissedCall<span>io</span></div>
   <div>© 2026 MissedCallio. All rights reserved.</div>
   <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;justify-content:center">
     <a href="/terms.html" style="color:inherit;text-decoration:none;opacity:.7">Terms</a>

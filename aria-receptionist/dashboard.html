@@ -7,6 +7,10 @@
 <meta name="theme-color" content="#ff6b00">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.json">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
 <style>
@@ -32,8 +36,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--surface);color:var(--blac
   background:var(--white);border-radius:24px;padding:52px 44px;width:100%;max-width:420px;
   box-shadow:0 32px 80px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.05);
 }
-.login-logo{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:8px}
+.login-logo{display:flex;align-items:center;justify-content:center;gap:8px;font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:8px}
 .login-logo span{color:var(--accent)}
+.logo-mark{border-radius:6px;display:block}
 .login-sub{color:var(--gray);font-size:14px;margin-bottom:32px}
 .login-label{font-size:13px;font-weight:500;margin-bottom:6px;display:block}
 .login-input{
@@ -60,7 +65,7 @@ header{
   display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50;
   border-bottom:1px solid rgba(255,255,255,.06);
 }
-.h-logo{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--white)}
+.h-logo{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--white)}
 .h-logo span{color:var(--accent)}
 .h-biz{font-size:13px;color:#888;margin-left:4px}
 .h-right{margin-left:auto;display:flex;align-items:center;gap:12px}
@@ -307,7 +312,7 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
 <!-- LOGIN -->
 <div id="login-screen">
   <div class="login-card">
-    <div class="login-logo">MissedCall<span>io</span></div>
+    <div class="login-logo"><img class="logo-mark" src="/logo.png" alt="" width="28" height="28" style="height:28px;width:28px;">MissedCall<span>io</span></div>
 
     <!-- Step 1: email -->
     <div id="login-step-email">
@@ -335,7 +340,7 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
 <!-- APP -->
 <div id="app">
   <header>
-    <div class="h-logo">MissedCall<span>io</span></div>
+    <div class="h-logo"><img class="logo-mark" src="/logo.png" alt="" width="20" height="20" style="height:20px;width:20px;">MissedCall<span>io</span></div>
     <div class="h-biz" id="h-biz-name"></div>
     <div class="h-right">
       <span class="plan-badge" id="plan-badge"></span>

@@ -98,6 +98,15 @@ app.get('/privacy',         (_req, res) => res.sendFile('privacy.html',         
 app.get('/refund',          (_req, res) => res.sendFile('refund.html',          { root: __dirname }));
 app.get('/call-forwarding', (_req, res) => res.sendFile('call-forwarding.html', { root: __dirname }));
 
+// logo / favicon / PWA icon assets
+app.get('/favicon.ico',           (_req, res) => res.sendFile('favicon.ico',           { root: __dirname }));
+app.get('/favicon-16.png',        (_req, res) => res.sendFile('favicon-16.png',        { root: __dirname }));
+app.get('/favicon-32.png',        (_req, res) => res.sendFile('favicon-32.png',        { root: __dirname }));
+app.get('/apple-touch-icon.png',  (_req, res) => res.sendFile('apple-touch-icon.png',  { root: __dirname }));
+app.get('/icon-192.png',          (_req, res) => res.sendFile('icon-192.png',          { root: __dirname }));
+app.get('/icon-512.png',          (_req, res) => res.sendFile('icon-512.png',          { root: __dirname }));
+app.get('/logo.png',              (_req, res) => res.sendFile('logo.png',              { root: __dirname }));
+
 // =============================================================
 //  RATE LIMITERS
 // =============================================================
