@@ -1200,7 +1200,7 @@ function renderInfo() {
   document.getElementById('s-webhook').value        = b.outbound_webhook_url   || '';
   document.getElementById('s-ai-name').value        = b.ai_name                || '';
   document.getElementById('s-after-hours').checked  = !!b.after_hours_only;
-  if (b.hubspot_api_key) document.getElementById('s-hubspot').placeholder = '••••••••••••• (configured)';
+  if (b.has_hubspot) document.getElementById('s-hubspot').placeholder = '••••••••••••• (configured)';
 }
 
 

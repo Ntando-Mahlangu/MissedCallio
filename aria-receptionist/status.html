@@ -79,13 +79,13 @@ async function checkStatus() {
     }
 
     set('svc-api',    true, 'Operational');
-    set('svc-db',     d.db   !== false, d.db   === false ? 'Disrupted' : 'Operational');
-    set('svc-vapi',   d.vapi !== false, d.vapi === false ? 'Disrupted' : 'Operational');
-    set('svc-twilio', d.twilio !== false, d.twilio === false ? 'Disrupted' : 'Operational');
-    set('svc-resend', d.resend !== false, d.resend === false ? 'Disrupted' : 'Operational');
-    set('svc-paddle', d.paddle !== false, d.paddle === false ? 'Disrupted' : 'Operational');
+    set('svc-db',     d.db      !== false, d.db      === false ? 'Disrupted' : 'Operational');
+    set('svc-vapi',   d.voice   !== false, d.voice   === false ? 'Disrupted' : 'Operational');
+    set('svc-twilio', d.sms     !== false, d.sms     === false ? 'Disrupted' : 'Operational');
+    set('svc-resend', d.email   !== false, d.email   === false ? 'Disrupted' : 'Operational');
+    set('svc-paddle', d.billing !== false, d.billing === false ? 'Disrupted' : 'Operational');
 
-    var allOk = [d.db, d.vapi, d.twilio, d.resend, d.paddle].every(v => v !== false);
+    var allOk = [d.db, d.voice, d.sms, d.email, d.billing].every(v => v !== false);
     var dot   = document.getElementById('overall-dot');
     dot.className = 'dot ' + (allOk ? 'green' : 'yellow');
     document.getElementById('overall-text').textContent = allOk

@@ -473,12 +473,16 @@ const PLAN_CALL_LIMITS = { starter: 100, growth: 500 };
 app.post('/vapi/webhook/:businessId', async (req, res) => {
   // HMAC signature check — always runs when secret is set
   if (process.env.VAPI_WEBHOOK_SECRET) {
-    const sig = req.headers['x-vapi-signature'];
+    if (!req.rawBody) {
+      console.warn('[webhook] missing rawBody — cannot verify signature, rejecting');
+      return res.status(400).json({ error: 'Bad request' });
+    }
+    const sig      = req.headers['x-vapi-signature'];
     const expected = crypto
       .createHmac('sha256', process.env.VAPI_WEBHOOK_SECRET)
-      .update(req.rawBody || Buffer.from(JSON.stringify(req.body)))
+      .update(req.rawBody)
       .digest('hex');
-    if (sig !== expected) {
+    if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
       console.warn('[webhook] rejected — bad HMAC signature');
       return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -1092,7 +1096,11 @@ function emailFooter(email) {
 
 app.get('/unsubscribe', async (req, res) => {
   const { email, token } = req.query;
-  if (!email || !token || token !== makeUnsubToken(email)) {
+  const expected = makeUnsubToken(email || '');
+  const tokenValid = email && token &&
+    token.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  if (!tokenValid) {
     return res.status(400).send('<p>Invalid unsubscribe link.</p>');
   }
   await supabase.from('businesses').update({ voicemail_email: null }).eq('email', email);
@@ -1387,8 +1395,8 @@ app.get('/api/notifications', authMiddleware, async (req, res) => {
 
 app.post('/api/notifications/read', authMiddleware, async (req, res) => {
   const { ids } = req.body; // array of IDs, or omit to mark all read
-  const query = supabase.from('notifications').update({ read: true }).eq('business_id', req.businessId);
-  if (Array.isArray(ids) && ids.length > 0) query.in('id', ids);
+  let query = supabase.from('notifications').update({ read: true }).eq('business_id', req.businessId);
+  if (Array.isArray(ids) && ids.length > 0) query = query.in('id', ids);
   await query;
   res.json({ success: true });
 });
@@ -1430,7 +1438,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, hubspot_api_key, referral_code, referred_by_code, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, referral_code, referred_by_code, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -1452,6 +1460,11 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
   ]);
 
   if (bizResult.error) return res.status(500).json({ error: bizResult.error.message });
+
+  // Fetch hubspot config state separately — never send the raw key to the browser
+  const { data: hubspotRow } = await supabase
+    .from('businesses').select('hubspot_api_key').eq('id', businessId).single();
+  const bizData = { ...bizResult.data, has_hubspot: !!hubspotRow?.hubspot_api_key };
 
   const leads        = leadsResult.data  || [];
   const calls        = callsResult.data  || [];
@@ -1486,7 +1499,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
   };
 
   res.json({
-    business:    bizResult.data,
+    business:    bizData,
     leads:       leadsWithReturning,
     calls,
     appointments,
@@ -1877,15 +1890,19 @@ app.get('/sitemap.xml', (_req, res) => {
 
 app.get('/status', (_req, res) => res.sendFile('status.html', { root: __dirname }));
 
-app.get('/health', (_req, res) => res.json({
-  status:  'ok',
-  db:      !!process.env.SUPABASE_URL,
-  vapi:    !!process.env.VAPI_API_KEY,
-  twilio:  !!process.env.TWILIO_ACCOUNT_SID,
-  resend:  !!process.env.RESEND_API_KEY,
-  paddle:  !!process.env.PADDLE_API_KEY,
-  uptime:  Math.round(process.uptime()),
-}));
+app.get('/health', (_req, res) => {
+  // Only surface booleans — no integration names that reveal attack surface to unauthenticated callers.
+  // The /status page uses these flags with friendly labels only shown after auth context.
+  res.json({
+    status:   'ok',
+    db:       !!process.env.SUPABASE_URL,
+    voice:    !!process.env.VAPI_API_KEY,
+    sms:      !!process.env.TWILIO_ACCOUNT_SID,
+    email:    !!process.env.RESEND_API_KEY,
+    billing:  !!process.env.PADDLE_API_KEY,
+    uptime:   Math.round(process.uptime()),
+  });
+});
 
 // =============================================================
 //  REMINDER POLLER — distributed-safe via optimistic DB lock
