@@ -160,3 +160,17 @@ alter table businesses add column if not exists ai_name text;
 alter table businesses add column if not exists aria_paused boolean default false;
 alter table businesses add column if not exists past_due_at timestamptz;
 create index if not exists businesses_paddle_sub_idx on businesses (paddle_subscription_id) where paddle_subscription_id is not null;
+
+-- Call transcripts
+alter table calls add column if not exists transcript text;
+
+-- After-hours mode
+alter table businesses add column if not exists after_hours_only boolean default false;
+
+-- Onboarding drip email flags
+alter table businesses add column if not exists drip_day1_sent boolean default false;
+alter table businesses add column if not exists drip_day3_sent boolean default false;
+alter table businesses add column if not exists drip_day6_sent boolean default false;
+
+-- Annual billing
+alter table businesses add column if not exists billing_interval text default 'monthly';

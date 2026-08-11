@@ -470,6 +470,7 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
                 <th>Started</th>
                 <th>Ended</th>
                 <th>Recording</th>
+                <th>Transcript</th>
               </tr>
             </thead>
             <tbody id="calls-tbody"></tbody>
@@ -631,6 +632,10 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
             <div class="field">
               <label class="login-label">AI receptionist name (default: Aria)</label>
               <input id="s-ai-name" class="login-input" type="text" placeholder="Aria" maxlength="30"/>
+            </div>
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+              <input id="s-after-hours" type="checkbox" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0"/>
+              <label for="s-after-hours" class="login-label" style="margin:0;cursor:pointer">After-hours only mode — Aria answers only when your business is closed</label>
             </div>
             <div class="field">
               <label class="login-label">Outbound webhook URL (optional — sends lead and appointment events to Zapier or your system)</label>
@@ -972,6 +977,12 @@ function renderCalls() {
     const recLink = c.recording_url
       ? `<audio controls src="${esc(c.recording_url)}" style="height:32px;width:200px"></audio>`
       : `<span style="color:var(--gray-light);font-size:12px">—</span>`;
+    const transcriptBtn = c.transcript
+      ? `<button onclick="this.closest('tr').nextElementSibling.style.display=this.closest('tr').nextElementSibling.style.display==='none'?'table-row':'none';this.textContent=this.textContent==='▸ View'?'▾ Hide':'▸ View'" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--gray)">▸ View</button>`
+      : `<span style="color:var(--gray-light);font-size:12px">—</span>`;
+    const transcriptRow = c.transcript
+      ? `<tr style="display:none"><td colspan="7" style="padding:12px 16px;background:var(--surface);font-size:13px;white-space:pre-wrap;line-height:1.6;color:var(--gray);font-family:monospace;border-top:1px solid var(--border)">${esc(c.transcript)}</td></tr>`
+      : '';
     return `<tr>
       <td><a class="phone-link" href="tel:${esc(c.caller_number||'')}">${esc(c.caller_number || 'Unknown')}</a></td>
       <td>${statusTag}</td>
@@ -979,7 +990,8 @@ function renderCalls() {
       <td style="white-space:nowrap;color:var(--gray);font-size:13px">${fmtTime(c.started_at)}</td>
       <td style="white-space:nowrap;color:var(--gray);font-size:13px">${fmtTime(c.ended_at)}</td>
       <td>${recLink}</td>
-    </tr>`;
+      <td>${transcriptBtn}</td>
+    </tr>${transcriptRow}`;
   }).join('');
 }
 
@@ -1059,6 +1071,7 @@ function renderInfo() {
   document.getElementById('s-hold').value           = b.hold_message           || '';
   document.getElementById('s-webhook').value        = b.outbound_webhook_url   || '';
   document.getElementById('s-ai-name').value        = b.ai_name                || '';
+  document.getElementById('s-after-hours').checked  = !!b.after_hours_only;
 }
 
 async function saveSettings(e) {
@@ -1082,6 +1095,7 @@ async function saveSettings(e) {
         holdMessage:         document.getElementById('s-hold').value.trim(),
         outboundWebhookUrl:  document.getElementById('s-webhook').value.trim(),
         aiName:              document.getElementById('s-ai-name').value.trim(),
+        afterHoursOnly:      document.getElementById('s-after-hours').checked,
       })
     });
     const d = await r.json();

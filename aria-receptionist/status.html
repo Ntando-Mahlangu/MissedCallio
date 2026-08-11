@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>MissedCallio — System Status</title>
+  <meta name="robots" content="noindex"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#f9fafb;--surface:#fff;--border:#e5e7eb;--text:#111;--gray:#6b7280;--green:#16a34a;--green-bg:#dcfce7;--yellow:#d97706;--yellow-bg:#fef3c7;--red:#dc2626;--red-bg:#fee2e2;--accent:#ff5c00}
+    @media(prefers-color-scheme:dark){:root{--bg:#0f0f0f;--surface:#1a1a1a;--border:#2a2a2a;--text:#f0f0f0;--gray:#9ca3af;--green-bg:#052e16;--yellow-bg:#1c1400;--red-bg:#2d0707}}
+    body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:0 16px}
+    header{max-width:640px;margin:0 auto;padding:40px 0 32px;display:flex;align-items:center;gap:12px}
+    header a{font-size:20px;font-weight:700;color:var(--text);text-decoration:none}
+    header a span{color:var(--accent)}
+    .page{max-width:640px;margin:0 auto;padding-bottom:80px}
+    h1{font-size:28px;font-weight:700;margin-bottom:6px}
+    .overall{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;margin-bottom:32px;padding:16px 20px;border-radius:12px;background:var(--surface);border:1px solid var(--border)}
+    .dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+    .dot.green{background:var(--green)}
+    .dot.yellow{background:var(--yellow)}
+    .dot.red{background:var(--red)}
+    .section-title{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--gray);margin-bottom:12px}
+    .service-list{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:32px}
+    .service-row{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border)}
+    .service-row:last-child{border-bottom:none}
+    .service-name{font-size:14px;font-weight:500}
+    .badge{font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px}
+    .badge.ok{background:var(--green-bg);color:var(--green)}
+    .badge.degraded{background:var(--yellow-bg);color:var(--yellow)}
+    .badge.down{background:var(--red-bg);color:var(--red)}
+    .badge.checking{background:var(--border);color:var(--gray)}
+    .last-checked{font-size:12px;color:var(--gray);margin-bottom:32px}
+    .refresh-btn{background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;color:var(--gray);cursor:pointer;font-family:inherit}
+    .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+  </style>
+</head>
+<body>
+<header>
+  <a href="/"><span>Missed</span>Callio</a>
+</header>
+
+<div class="page">
+  <h1>System Status</h1>
+  <p style="color:var(--gray);font-size:14px;margin-bottom:24px">Live status of all MissedCallio services.</p>
+
+  <div class="overall" id="overall-bar">
+    <span class="dot checking" id="overall-dot"></span>
+    <span id="overall-text">Checking services…</span>
+  </div>
+
+  <div class="section-title">Core services</div>
+  <div class="service-list" id="service-list">
+    <div class="service-row"><span class="service-name">API server</span><span class="badge checking" id="svc-api">Checking…</span></div>
+    <div class="service-row"><span class="service-name">Database</span><span class="badge checking" id="svc-db">Checking…</span></div>
+    <div class="service-row"><span class="service-name">AI receptionist (Vapi)</span><span class="badge checking" id="svc-vapi">Checking…</span></div>
+    <div class="service-row"><span class="service-name">SMS alerts (Twilio)</span><span class="badge checking" id="svc-twilio">Checking…</span></div>
+    <div class="service-row"><span class="service-name">Email (Resend)</span><span class="badge checking" id="svc-resend">Checking…</span></div>
+    <div class="service-row"><span class="service-name">Billing (Paddle)</span><span class="badge checking" id="svc-paddle">Checking…</span></div>
+  </div>
+
+  <p class="last-checked" id="last-checked"></p>
+  <button class="refresh-btn" onclick="checkStatus()">Refresh</button>
+</div>
+
+<script>
+async function checkStatus() {
+  document.getElementById('last-checked').textContent = 'Checking…';
+  try {
+    const r   = await fetch('/health');
+    const d   = await r.json();
+    const now = new Date().toLocaleTimeString();
+    document.getElementById('last-checked').textContent = `Last checked: ${now}`;
+
+    function set(id, ok, label) {
+      var el = document.getElementById(id);
+      el.textContent  = label || (ok ? 'Operational' : 'Disrupted');
+      el.className    = 'badge ' + (ok ? 'ok' : 'down');
+    }
+
+    set('svc-api',    true, 'Operational');
+    set('svc-db',     d.db   !== false, d.db   === false ? 'Disrupted' : 'Operational');
+    set('svc-vapi',   d.vapi !== false, d.vapi === false ? 'Disrupted' : 'Operational');
+    set('svc-twilio', d.twilio !== false, d.twilio === false ? 'Disrupted' : 'Operational');
+    set('svc-resend', d.resend !== false, d.resend === false ? 'Disrupted' : 'Operational');
+    set('svc-paddle', d.paddle !== false, d.paddle === false ? 'Disrupted' : 'Operational');
+
+    var allOk = [d.db, d.vapi, d.twilio, d.resend, d.paddle].every(v => v !== false);
+    var dot   = document.getElementById('overall-dot');
+    dot.className = 'dot ' + (allOk ? 'green' : 'yellow');
+    document.getElementById('overall-text').textContent = allOk
+      ? 'All systems operational'
+      : 'Some services may be degraded';
+    document.getElementById('overall-bar').style.background = allOk ? 'var(--green-bg)' : 'var(--yellow-bg)';
+  } catch(e) {
+    document.getElementById('last-checked').textContent = 'Could not reach server.';
+    document.getElementById('overall-dot').className = 'dot red';
+    document.getElementById('overall-text').textContent = 'Service outage — unable to connect';
+    document.getElementById('overall-bar').style.background = 'var(--red-bg)';
+  }
+}
+checkStatus();
+</script>
+</body>
+</html>

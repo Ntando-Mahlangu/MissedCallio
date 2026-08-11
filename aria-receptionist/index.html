@@ -1040,10 +1040,19 @@ footer {
     <h2 class="section-title">Simple, honest pricing</h2>
     <p class="section-sub">Start free for 7 days. No credit card needed. Cancel anytime.</p>
 
+    <!-- Billing toggle -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:36px">
+      <span id="toggle-monthly-label" style="font-weight:600;font-size:15px">Monthly</span>
+      <button id="billing-toggle" onclick="toggleBilling()" aria-pressed="false" style="width:52px;height:28px;border-radius:14px;background:#e5e7eb;border:none;cursor:pointer;position:relative;transition:background .2s">
+        <span id="toggle-knob" style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:left .2s"></span>
+      </button>
+      <span id="toggle-annual-label" style="font-size:15px;color:#6b7280">Annual <span style="background:#dcfce7;color:#166534;font-size:12px;font-weight:600;padding:2px 7px;border-radius:10px;margin-left:4px">2 months free</span></span>
+    </div>
+
     <div class="pricing-grid">
       <div class="price-card">
         <div class="card-plan">Starter</div>
-        <div class="card-price"><sup>$</sup>97<span>/mo</span></div>
+        <div class="card-price"><sup>$</sup><span class="price-val" data-monthly="97" data-annual="81">97</span><span class="price-period">/mo</span></div>
         <div class="card-trial">✓ 7-day free trial</div>
         <div class="card-desc">Perfect for solo traders and small businesses up to 100 calls a month.</div>
         <ul class="card-features">
@@ -1060,7 +1069,7 @@ footer {
       <div class="price-card popular">
         <div class="popular-badge">Most popular</div>
         <div class="card-plan">Growth</div>
-        <div class="card-price"><sup>$</sup>197<span>/mo</span></div>
+        <div class="card-price"><sup>$</sup><span class="price-val" data-monthly="197" data-annual="164">197</span><span class="price-period">/mo</span></div>
         <div class="card-trial">✓ 7-day free trial</div>
         <div class="card-desc">For growing businesses and small offices that can't miss a single enquiry.</div>
         <ul class="card-features">
@@ -1076,7 +1085,7 @@ footer {
 
       <div class="price-card">
         <div class="card-plan">Pro</div>
-        <div class="card-price"><sup>$</sup>497<span>/mo</span></div>
+        <div class="card-price"><sup>$</sup><span class="price-val" data-monthly="497" data-annual="414">497</span><span class="price-period">/mo</span></div>
         <div class="card-trial">✓ 7-day free trial</div>
         <div class="card-desc">For offices and agencies managing high call volumes or multiple locations.</div>
         <ul class="card-features">
@@ -1317,6 +1326,59 @@ async function handleSignup(e) {
 }
 </script>
 
+<!-- BILLING TOGGLE SCRIPT -->
+<script>
+var _billingAnnual = false;
+function toggleBilling() {
+  _billingAnnual = !_billingAnnual;
+  var toggle = document.getElementById('billing-toggle');
+  var knob   = document.getElementById('toggle-knob');
+  var mLabel = document.getElementById('toggle-monthly-label');
+  var aLabel = document.getElementById('toggle-annual-label');
+  toggle.setAttribute('aria-pressed', _billingAnnual);
+  toggle.style.background = _billingAnnual ? '#ff5c00' : '#e5e7eb';
+  knob.style.left = _billingAnnual ? '27px' : '3px';
+  mLabel.style.color = _billingAnnual ? '#6b7280' : '';
+  mLabel.style.fontWeight = _billingAnnual ? '400' : '600';
+  aLabel.style.color = _billingAnnual ? '' : '#6b7280';
+  aLabel.style.fontWeight = _billingAnnual ? '600' : '400';
+  document.querySelectorAll('.price-val').forEach(function(el) {
+    el.textContent = _billingAnnual ? el.dataset.annual : el.dataset.monthly;
+  });
+  document.querySelectorAll('.price-period').forEach(function(el) {
+    el.textContent = _billingAnnual ? '/mo billed annually' : '/mo';
+  });
+}
+</script>
+
+<!-- COOKIE CONSENT BANNER -->
+<div id="cookie-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#1a1a1a;color:#fff;padding:16px 24px;z-index:9999;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-family:'DM Sans',sans-serif">
+  <span style="flex:1;min-width:220px">We use cookies to keep you logged in and understand how you use the site. <a href="/privacy" style="color:#ff9966;text-decoration:underline">Privacy policy</a></span>
+  <div style="display:flex;gap:10px">
+    <button onclick="acceptCookies()" style="background:#ff5c00;color:#fff;border:none;border-radius:8px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Accept</button>
+    <button onclick="declineCookies()" style="background:transparent;color:#aaa;border:1px solid #555;border-radius:8px;padding:9px 20px;font-size:14px;cursor:pointer;font-family:'DM Sans',sans-serif">Decline</button>
+  </div>
+</div>
+<script>
+(function(){
+  var consent = localStorage.getItem('mc_cookie_consent');
+  if (!consent) {
+    var banner = document.getElementById('cookie-banner');
+    if (banner) banner.style.display = 'flex';
+  }
+})();
+function acceptCookies() {
+  localStorage.setItem('mc_cookie_consent', 'accepted');
+  document.getElementById('cookie-banner').style.display = 'none';
+  // Initialise Tawk.to if configured
+  initTawk();
+}
+function declineCookies() {
+  localStorage.setItem('mc_cookie_consent', 'declined');
+  document.getElementById('cookie-banner').style.display = 'none';
+}
+</script>
+
 <!--
   LIVE CHAT — Tawk.to (free)
   1. Sign up at https://www.tawk.to
@@ -1325,10 +1387,13 @@ async function handleSignup(e) {
   4. The chat bubble will appear bottom-right for all visitors
 -->
 <script>
-(function(){
-  var TAWK_PROPERTY_ID = 'TAWK_PROPERTY_ID';  // ← replace with your Tawk.to property ID
-  var TAWK_WIDGET_ID   = 'TAWK_WIDGET_ID';    // ← replace with your Tawk.to widget ID (usually '1')
+var TAWK_PROPERTY_ID = 'TAWK_PROPERTY_ID';  // ← replace with your Tawk.to property ID
+var TAWK_WIDGET_ID   = 'TAWK_WIDGET_ID';    // ← replace with your Tawk.to widget ID (usually '1')
+function initTawk() {
   if (TAWK_PROPERTY_ID === 'TAWK_PROPERTY_ID') return; // skip until configured
+  if (window.Tawk_API) return; // already loaded
+  if (localStorage.getItem('mc_cookie_consent') !== 'accepted') return;
+(function(){
 
   var s1 = document.createElement('script');
   var s0 = document.getElementsByTagName('script')[0];
@@ -1338,6 +1403,9 @@ async function handleSignup(e) {
   s1.setAttribute('crossorigin','*');
   s0.parentNode.insertBefore(s1, s0);
 })();
+}
+// Auto-init if already consented
+if (localStorage.getItem('mc_cookie_consent') === 'accepted') initTawk();
 </script>
 </body>
 </html>

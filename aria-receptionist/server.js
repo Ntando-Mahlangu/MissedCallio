@@ -3,6 +3,7 @@
 //  Vapi + Claude + ElevenLabs + Supabase + Twilio + Paddle
 // =============================================================
 
+import * as Sentry from '@sentry/node';
 import express    from 'express';
 import helmet     from 'helmet';
 import rateLimit  from 'express-rate-limit';
@@ -13,6 +14,14 @@ import path       from 'path';
 import { fileURLToPath } from 'url';
 import { createPaddleCheckout, handlePaddleWebhook, cancelPaddleSubscription } from './paddle.js';
 dotenv.config();
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn:              process.env.SENTRY_DSN,
+    tracesSampleRate: 0.1,
+  });
+  console.log('[sentry] error monitoring active');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -362,7 +371,7 @@ function buildAssistantConfig(business) {
 //  SYSTEM PROMPT
 // =============================================================
 function buildSystemPrompt(business) {
-  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message, departments, office_type, ai_name } = business;
+  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message, departments, office_type, ai_name, after_hours_only } = business;
   const receptionist = ai_name || 'Aria';
   const canBook = plan === 'growth' || plan === 'pro';
 
@@ -387,7 +396,11 @@ OFFICE CONTEXT:
 - If the caller says they've spoken to someone before: "Of course — I'll pass your details straight to them."
 - Never promise to "transfer" or "put them through" — you are the receptionist taking messages.` : '';
 
-  return `You are ${receptionist}, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
+  const afterHoursNote = after_hours_only
+    ? `\nIMPORTANT: You are the after-hours service. The business is currently closed. Don't apologise for this — it's expected. Your job is to make sure the caller feels heard and that someone will get back to them.`
+    : '';
+
+  return `You are ${receptionist}, a warm and professional AI receptionist for ${business_name}, a ${industry} business.${afterHoursNote}
 
 BUSINESS INFORMATION:
 - Hours: ${biz_hours || 'Monday to Friday 8am–6pm'}
@@ -557,11 +570,20 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
       console.log(`[call] ended ${callId} (${call?.duration || 0}s)`);
       const recordingUrl = call?.recordingUrl || null;
       const duration = call?.duration || null;
+
+      // Build readable transcript from Vapi message array
+      const rawMessages = message?.artifact?.messages || call?.messages || [];
+      const transcript = rawMessages
+        .filter(m => m.role === 'assistant' || m.role === 'user')
+        .map(m => `${m.role === 'assistant' ? 'Aria' : 'Caller'}: ${m.message || m.content || ''}`)
+        .join('\n') || null;
+
       await supabase.from('calls').update({
         status:           'completed',
         ended_at:         new Date().toISOString(),
         duration_seconds: duration,
         recording_url:    recordingUrl,
+        transcript,
       }).eq('id', callId);
 
       if (recordingUrl) {
@@ -1252,7 +1274,7 @@ async function sendOTPEmail(email, otp) {
 // =============================================================
 app.post('/api/settings', authMiddleware, async (req, res) => {
   const { businessId } = req;
-  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl, aiName } = req.body;
+  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl, aiName, afterHoursOnly } = req.body;
   const updates = {};
   if (bizHours    !== undefined) updates.biz_hours   = bizHours;
   if (bizAddress  !== undefined) updates.biz_address = bizAddress;
@@ -1263,12 +1285,13 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
   if (holdMessage     !== undefined) updates.hold_message      = holdMessage      || null;
   if (outboundWebhookUrl !== undefined) updates.outbound_webhook_url = outboundWebhookUrl || null;
   if (aiName !== undefined) updates.ai_name = aiName || null;
+  if (afterHoursOnly !== undefined) updates.after_hours_only = !!afterHoursOnly;
   if (Object.keys(updates).length === 0) return res.json({ success: true });
   const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
   if (error) return res.status(500).json({ error: error.message });
 
   // Regenerate Vapi assistant if prompt-affecting fields changed
-  const promptFields = ['biz_hours', 'biz_address', 'biz_pricing', 'hold_message', 'ai_name'];
+  const promptFields = ['biz_hours', 'biz_address', 'biz_pricing', 'hold_message', 'ai_name', 'after_hours_only'];
   const needsRegen = promptFields.some(f => f in updates);
   if (needsRegen && process.env.VAPI_API_KEY) {
     try {
@@ -1303,7 +1326,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -1748,13 +1771,16 @@ app.get('/sitemap.xml', (_req, res) => {
   );
 });
 
+app.get('/status', (_req, res) => res.sendFile('status.html', { root: __dirname }));
+
 app.get('/health', (_req, res) => res.json({
   status:  'ok',
-  supabase: !!process.env.SUPABASE_URL,
-  vapi:     !!process.env.VAPI_API_KEY,
-  twilio:   !!process.env.TWILIO_ACCOUNT_SID,
-  email:    !!process.env.RESEND_API_KEY,
-  uptime:   Math.round(process.uptime())
+  db:      !!process.env.SUPABASE_URL,
+  vapi:    !!process.env.VAPI_API_KEY,
+  twilio:  !!process.env.TWILIO_ACCOUNT_SID,
+  resend:  !!process.env.RESEND_API_KEY,
+  paddle:  !!process.env.PADDLE_API_KEY,
+  uptime:  Math.round(process.uptime()),
 }));
 
 // =============================================================
@@ -1984,11 +2010,113 @@ async function runWeeklyDigestPoller() {
 setInterval(runWeeklyDigestPoller, 60 * 60 * 1000);  // hourly (runs only on Monday 8am UTC)
 
 // =============================================================
+//  ONBOARDING DRIP POLLER — day 1, day 3, day 6 emails
+// =============================================================
+async function runDripPoller() {
+  if (!process.env.RESEND_API_KEY) return;
+  const base = process.env.SERVER_URL || 'https://missedcallio.online';
+  const now  = Date.now();
+
+  const drips = [
+    {
+      flag:    'drip_day1_sent',
+      minMs:   23 * 3600 * 1000,
+      maxMs:   26 * 3600 * 1000,
+      subject: 'Set up call forwarding in 2 minutes',
+      html: (biz) => `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        <h2 style="color:#ff5c00">One quick step to go live</h2>
+        <p>Hi ${biz.name},</p>
+        <p>Aria is ready to answer calls for <strong>${biz.business_name}</strong> — but she needs you to forward your missed calls to her number first.</p>
+        <p>It takes about 2 minutes. <a href="${base}/call-forwarding" style="color:#ff5c00">View step-by-step instructions →</a></p>
+        <p>Once you've done it, make a quick test call to your number — you should hear Aria pick up within 2 rings.</p>
+        <br/>
+        <a href="${base}/call-forwarding" style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">Set up call forwarding →</a>
+        <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+        ${emailFooter(biz.email)}
+      </div>`,
+    },
+    {
+      flag:    'drip_day3_sent',
+      minMs:   71 * 3600 * 1000,
+      maxMs:   74 * 3600 * 1000,
+      subject: 'Has Aria answered a call yet?',
+      html: (biz) => `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        <h2 style="color:#ff5c00">Check in from MissedCallio</h2>
+        <p>Hi ${biz.name},</p>
+        <p>You're 3 days into your trial. Have you had a chance to set up call forwarding yet?</p>
+        <p>If Aria has answered a call, log in to your dashboard to see the leads she's captured. If not, forwarding takes 2 minutes and she'll be live instantly.</p>
+        <p><strong>Tip:</strong> If you're not sure Aria is working, call your number from another phone — she should answer within 2 rings.</p>
+        <br/>
+        <a href="${base}/dashboard" style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">View my dashboard →</a>
+        <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+        ${emailFooter(biz.email)}
+      </div>`,
+    },
+    {
+      flag:    'drip_day6_sent',
+      minMs:   143 * 3600 * 1000,
+      maxMs:   146 * 3600 * 1000,
+      subject: 'Your trial ends tomorrow — keep Aria answering',
+      html: (biz) => `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        <h2 style="color:#ff5c00">Your trial ends tomorrow</h2>
+        <p>Hi ${biz.name},</p>
+        <p>Your free trial for <strong>${biz.business_name}</strong> ends in less than 24 hours.</p>
+        <p>If you'd like Aria to keep answering your calls, add a payment method now — it takes under a minute and you won't be charged until the trial ends.</p>
+        <br/>
+        <a href="${base}/dashboard" style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">Keep Aria active →</a>
+        <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+        ${emailFooter(biz.email)}
+      </div>`,
+    },
+  ];
+
+  try {
+    const { data: trials } = await supabase
+      .from('businesses')
+      .select('id, name, email, business_name, created_at, drip_day1_sent, drip_day3_sent, drip_day6_sent')
+      .eq('status', 'trial');
+
+    if (!trials?.length) return;
+
+    for (const biz of trials) {
+      const age = now - new Date(biz.created_at).getTime();
+      for (const drip of drips) {
+        if (biz[drip.flag]) continue;
+        if (age < drip.minMs || age > drip.maxMs) continue;
+        try {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+              to:      biz.email,
+              subject: drip.subject,
+              html:    drip.html(biz),
+            }),
+          });
+          await supabase.from('businesses').update({ [drip.flag]: true }).eq('id', biz.id);
+          console.log(`[drip] ${drip.flag} sent to ${biz.email}`);
+        } catch (err) {
+          console.error(`[drip] ${drip.flag} failed for ${biz.email}:`, err.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[drip] poller error:', err.message);
+  }
+}
+
+setInterval(runDripPoller, 60 * 60 * 1000);  // hourly
+
+// =============================================================
 //  START
 // =============================================================
+// Sentry must be added after all routes, before listen
+if (process.env.SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
+
 process.on('SIGTERM', () => process.exit(0));
-process.on('uncaughtException',  (e) => { console.error('[fatal] uncaught:', e.message); process.exit(1); });
-process.on('unhandledRejection', (e) => { console.error('[fatal] unhandled:', e?.message || e); process.exit(1); });
+process.on('uncaughtException',  (e) => { if (process.env.SENTRY_DSN) Sentry.captureException(e); console.error('[fatal] uncaught:', e.message); process.exit(1); });
+process.on('unhandledRejection', (e) => { if (process.env.SENTRY_DSN) Sentry.captureException(e); console.error('[fatal] unhandled:', e?.message || e); process.exit(1); });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
