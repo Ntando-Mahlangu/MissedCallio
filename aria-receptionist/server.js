@@ -84,9 +84,10 @@ const SAFE_FILES = {
 for (const [route, file] of Object.entries(SAFE_FILES)) {
   app.get(route, (_req, res) => res.sendFile(path.join(__dirname, file)));
 }
-app.get('/terms',   (_req, res) => res.sendFile('terms.html',   { root: __dirname }));
-app.get('/privacy', (_req, res) => res.sendFile('privacy.html', { root: __dirname }));
-app.get('/refund',  (_req, res) => res.sendFile('refund.html',  { root: __dirname }));
+app.get('/terms',           (_req, res) => res.sendFile('terms.html',           { root: __dirname }));
+app.get('/privacy',         (_req, res) => res.sendFile('privacy.html',         { root: __dirname }));
+app.get('/refund',          (_req, res) => res.sendFile('refund.html',          { root: __dirname }));
+app.get('/call-forwarding', (_req, res) => res.sendFile('call-forwarding.html', { root: __dirname }));
 
 // =============================================================
 //  RATE LIMITERS
@@ -266,7 +267,8 @@ async function createVapiAssistant(business) {
 //  ASSISTANT CONFIG
 // =============================================================
 function buildAssistantConfig(business) {
-  const { business_name, id, plan } = business;
+  const { business_name, id, plan, ai_name } = business;
+  const receptionist = ai_name || 'Aria';
   const canBook = plan === 'growth' || plan === 'pro';
 
   const tools = [{
@@ -347,7 +349,7 @@ function buildAssistantConfig(business) {
     transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en', smartFormat: true },
     silenceTimeoutSeconds: 1.5,
     maxDurationSeconds:    300,
-    firstMessage:    `Hi there, thanks for calling ${business_name}! My name's Aria. Could I get your name please?`,
+    firstMessage:    `Hi there, thanks for calling ${business_name}! My name's ${receptionist}. Could I get your name please?`,
     endCallMessage:  "Thanks so much for calling. Someone from the team will be in touch soon. Take care!",
     endCallPhrases:  ['goodbye','bye','bye bye','thanks bye','thank you bye',"that's all",'have a good day','talk later','cheers'],
     serverUrl:       `${process.env.SERVER_URL}/vapi/webhook/${id}`,
@@ -360,7 +362,8 @@ function buildAssistantConfig(business) {
 //  SYSTEM PROMPT
 // =============================================================
 function buildSystemPrompt(business) {
-  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message, departments, office_type } = business;
+  const { business_name, industry, biz_hours, biz_address, biz_pricing, plan, hold_message, departments, office_type, ai_name } = business;
+  const receptionist = ai_name || 'Aria';
   const canBook = plan === 'growth' || plan === 'pro';
 
   const deptList = departments
@@ -384,7 +387,7 @@ OFFICE CONTEXT:
 - If the caller says they've spoken to someone before: "Of course — I'll pass your details straight to them."
 - Never promise to "transfer" or "put them through" — you are the receptionist taking messages.` : '';
 
-  return `You are Aria, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
+  return `You are ${receptionist}, a warm and professional AI receptionist for ${business_name}, a ${industry} business.
 
 BUSINESS INFORMATION:
 - Hours: ${biz_hours || 'Monday to Friday 8am–6pm'}
@@ -923,6 +926,37 @@ function formatApptTime(date) {
 }
 
 // =============================================================
+//  UNSUBSCRIBE — HMAC token, no DB column needed
+// =============================================================
+function makeUnsubToken(email) {
+  return crypto.createHmac('sha256', process.env.TOKEN_SECRET).update(email).digest('hex');
+}
+
+function unsubLink(email) {
+  const base = process.env.SERVER_URL || 'https://missedcallio.online';
+  return `${base}/unsubscribe?email=${encodeURIComponent(email)}&token=${makeUnsubToken(email)}`;
+}
+
+function emailFooter(email) {
+  return `<p style="font-size:11px;color:#aaa;margin-top:32px;text-align:center">
+    MissedCallio · <a href="${unsubLink(email)}" style="color:#aaa">Unsubscribe</a>
+  </p>`;
+}
+
+app.get('/unsubscribe', async (req, res) => {
+  const { email, token } = req.query;
+  if (!email || !token || token !== makeUnsubToken(email)) {
+    return res.status(400).send('<p>Invalid unsubscribe link.</p>');
+  }
+  await supabase.from('businesses').update({ voicemail_email: null }).eq('email', email);
+  res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:60px">
+    <h2>Unsubscribed</h2>
+    <p>You've been removed from MissedCallio email notifications for ${email}.</p>
+    <p>To manage your account visit <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard">your dashboard</a>.</p>
+  </body></html>`);
+});
+
+// =============================================================
 //  WELCOME EMAIL
 // =============================================================
 async function sendWelcomeEmail(business, phoneNumber) {
@@ -953,6 +987,7 @@ async function sendWelcomeEmail(business, phoneNumber) {
             Access Your Dashboard →
           </a>
           <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+          ${emailFooter(business.email)}
         </div>`
       })
     });
@@ -1149,7 +1184,7 @@ async function sendOTPEmail(email, otp) {
 // =============================================================
 app.post('/api/settings', authMiddleware, async (req, res) => {
   const { businessId } = req;
-  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl } = req.body;
+  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl, aiName } = req.body;
   const updates = {};
   if (bizHours    !== undefined) updates.biz_hours   = bizHours;
   if (bizAddress  !== undefined) updates.biz_address = bizAddress;
@@ -1159,12 +1194,13 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
   if (voicemailEmail  !== undefined) updates.voicemail_email   = voicemailEmail  || null;
   if (holdMessage     !== undefined) updates.hold_message      = holdMessage      || null;
   if (outboundWebhookUrl !== undefined) updates.outbound_webhook_url = outboundWebhookUrl || null;
+  if (aiName !== undefined) updates.ai_name = aiName || null;
   if (Object.keys(updates).length === 0) return res.json({ success: true });
   const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
   if (error) return res.status(500).json({ error: error.message });
 
   // Regenerate Vapi assistant if prompt-affecting fields changed
-  const promptFields = ['biz_hours', 'biz_address', 'biz_pricing', 'hold_message'];
+  const promptFields = ['biz_hours', 'biz_address', 'biz_pricing', 'hold_message', 'ai_name'];
   const needsRegen = promptFields.some(f => f in updates);
   if (needsRegen && process.env.VAPI_API_KEY) {
     try {
@@ -1199,7 +1235,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -1516,6 +1552,54 @@ app.post('/api/subscription/cancel', authMiddleware, async (req, res) => {
   res.json({ success: true, message: 'Subscription will cancel at end of billing period.' });
 });
 
+// =============================================================
+//  ACCOUNT DELETION — right to erasure (GDPR)
+// =============================================================
+app.delete('/api/account', authMiddleware, async (req, res) => {
+  try {
+    const businessId = req.businessId;
+    // Cancel active Paddle subscription first (best-effort)
+    const { data: biz } = await supabase.from('businesses')
+      .select('paddle_subscription_id, email, business_name').eq('id', businessId).single();
+    if (biz?.paddle_subscription_id) {
+      await cancelPaddleSubscription(biz.paddle_subscription_id).catch(() => {});
+    }
+    // Delete all child records first, then the business row
+    await supabase.from('leads').delete().eq('business_id', businessId);
+    await supabase.from('calls').delete().eq('business_id', businessId);
+    await supabase.from('appointments').delete().eq('business_id', businessId);
+    await supabase.from('staff').delete().eq('business_id', businessId);
+    await supabase.from('team_members').delete().eq('business_id', businessId);
+    await supabase.from('auth_sessions').delete().eq('business_id', businessId);
+    await supabase.from('businesses').delete().eq('id', businessId);
+    console.log(`[account] deleted business ${businessId} (${biz?.email})`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[account] delete error:', err.message);
+    res.status(500).json({ error: 'Failed to delete account. Please contact support.' });
+  }
+});
+
+// =============================================================
+//  SEO — robots.txt and sitemap.xml
+// =============================================================
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(
+    `User-agent: *\nAllow: /\nDisallow: /dashboard\nDisallow: /api/\nDisallow: /admin/\n\nSitemap: ${process.env.SERVER_URL || 'https://missedcallio.online'}/sitemap.xml`
+  );
+});
+
+app.get('/sitemap.xml', (_req, res) => {
+  const base = process.env.SERVER_URL || 'https://missedcallio.online';
+  res.type('application/xml').send(
+    `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${base}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>${base}/call-forwarding</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+</urlset>`
+  );
+});
+
 app.get('/health', (_req, res) => res.json({
   status:  'ok',
   supabase: !!process.env.SUPABASE_URL,
@@ -1664,6 +1748,7 @@ async function runTrialWarningPoller() {
               </a>
               <br/><br/>
               <p style="color:#888">— The MissedCallio Team</p>
+              ${emailFooter(biz.email)}
             </div>`
           })
         });

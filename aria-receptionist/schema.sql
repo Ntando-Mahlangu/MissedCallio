@@ -156,4 +156,5 @@ create index if not exists auth_sessions_biz_idx on auth_sessions (business_id);
 -- Onboarding, webhooks, and additional indexes
 alter table businesses add column if not exists onboarding_complete boolean default false;
 alter table businesses add column if not exists outbound_webhook_url text;
+alter table businesses add column if not exists ai_name text;
 create index if not exists businesses_paddle_sub_idx on businesses (paddle_subscription_id) where paddle_subscription_id is not null;
