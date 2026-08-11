@@ -140,8 +140,7 @@ alter table businesses add column if not exists calls_reset_at timestamptz defau
 -- Timezone support for appointments
 alter table businesses add column if not exists timezone text default 'UTC';
 
--- Paddle subscription index
-create index if not exists businesses_paddle_sub_idx on businesses (paddle_subscription_id);
+-- Paddle subscription index (partial — skips NULL rows for efficiency)
 
 -- Session table for JWT revocation (jti nonce)
 create table if not exists auth_sessions (

@@ -11,7 +11,7 @@ import crypto     from 'crypto';
 import dotenv     from 'dotenv';
 import path       from 'path';
 import { fileURLToPath } from 'url';
-import { createPaddleCheckout, handlePaddleWebhook } from './paddle.js';
+import { createPaddleCheckout, handlePaddleWebhook, cancelPaddleSubscription } from './paddle.js';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -329,7 +329,7 @@ function buildAssistantConfig(business) {
     name:  `MissedCall — ${business_name}`,
     model: {
       provider:     'anthropic',
-      model:        'claude-sonnet-4-5-20251001',
+      model:        'claude-sonnet-4-5',
       systemPrompt: buildSystemPrompt(business),
       temperature:  0.7,
       maxTokens:    250,
@@ -458,7 +458,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
     const sig = req.headers['x-vapi-signature'];
     const expected = crypto
       .createHmac('sha256', process.env.VAPI_WEBHOOK_SECRET)
-      .update(JSON.stringify(req.body))
+      .update(req.rawBody || Buffer.from(JSON.stringify(req.body)))
       .digest('hex');
     if (sig !== expected) {
       console.warn('[webhook] rejected — bad HMAC signature');
@@ -561,7 +561,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
         const { count: apptCount } = await supabase.from('appointments')
           .select('id', { count: 'exact', head: true }).eq('call_id', callId);
 
-        if ((leadCount === 0 && apptCount === 0) && biz && process.env.RESEND_API_KEY) {
+        if ((!leadCount && !apptCount) && biz && process.env.RESEND_API_KEY) {
           const sendTo = biz.voicemail_email || biz.email;
           const callerNum = call?.customer?.number || 'Unknown';
           await fetch('https://api.resend.com/emails', {
@@ -1162,6 +1162,27 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
   if (Object.keys(updates).length === 0) return res.json({ success: true });
   const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
   if (error) return res.status(500).json({ error: error.message });
+
+  // Regenerate Vapi assistant if prompt-affecting fields changed
+  const promptFields = ['biz_hours', 'biz_address', 'biz_pricing', 'hold_message'];
+  const needsRegen = promptFields.some(f => f in updates);
+  if (needsRegen && process.env.VAPI_API_KEY) {
+    try {
+      const { data: biz } = await supabase.from('businesses')
+        .select('*').eq('id', businessId).single();
+      if (biz?.vapi_assistant_id) {
+        await fetch(`https://api.vapi.ai/assistant/${biz.vapi_assistant_id}`, {
+          method:  'PATCH',
+          headers: { Authorization: `Bearer ${process.env.VAPI_API_KEY}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ model: { systemPrompt: buildSystemPrompt(biz) } }),
+        });
+        console.log(`[vapi] assistant prompt updated for ${businessId}`);
+      }
+    } catch (vapiErr) {
+      console.error('[vapi] failed to update assistant prompt:', vapiErr.message);
+    }
+  }
+
   res.json({ success: true });
 });
 
@@ -1261,6 +1282,9 @@ app.get('/api/staff', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/staff', authMiddleware, async (req, res) => {
+  // Staff directory is a Pro-plan feature
+  const { data: planCheck } = await supabase.from('businesses').select('plan').eq('id', req.businessId).single();
+  if (planCheck?.plan !== 'pro') return res.status(403).json({ error: 'Staff directory is available on the Pro plan.' });
   const { name, role, phone, email } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required.' });
   const { data, error } = await supabase.from('staff').insert({
@@ -1311,7 +1335,7 @@ app.post('/api/team', authMiddleware, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   if (process.env.RESEND_API_KEY) {
-    const dashUrl = process.env.SERVER_URL || 'https://missedcallio-production.up.railway.app';
+    const dashUrl = process.env.SERVER_URL || 'https://missedcallio.online';
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -1483,6 +1507,15 @@ app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
 // =============================================================
 app.post('/paddle/webhook', (req, res) => handlePaddleWebhook(req, res, supabase, req.rawBody));
 
+app.post('/api/subscription/cancel', authMiddleware, async (req, res) => {
+  const { data: biz } = await supabase.from('businesses')
+    .select('paddle_subscription_id, plan').eq('id', req.businessId).single();
+  if (!biz?.paddle_subscription_id) return res.status(400).json({ error: 'No active subscription found.' });
+  const result = await cancelPaddleSubscription(biz.paddle_subscription_id);
+  if (!result.success) return res.status(500).json({ error: result.error });
+  res.json({ success: true, message: 'Subscription will cancel at end of billing period.' });
+});
+
 app.get('/health', (_req, res) => res.json({
   status:  'ok',
   supabase: !!process.env.SUPABASE_URL,
@@ -1625,7 +1658,7 @@ async function runTrialWarningPoller() {
               <p>Your 7-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 2 days.</p>
               <p>To keep Aria answering your calls, add a payment method before your trial ends.</p>
               <br/>
-              <a href="${process.env.SERVER_URL || 'https://missedcallio-production.up.railway.app'}/dashboard"
+              <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
                  style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500">
                 Manage my account →
               </a>

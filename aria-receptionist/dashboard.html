@@ -729,7 +729,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.getElementById('login-step-otp').style.display !== 'none') doVerifyOTP();
 });
 
-function logout() {
+async function logout() {
+  const token = localStorage.getItem('mc_token');
+  if (token) {
+    try {
+      await fetch('/auth/session', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    } catch (_) {}
+  }
   localStorage.removeItem('mc_token');
   localStorage.removeItem('mc_biz');
   location.reload();

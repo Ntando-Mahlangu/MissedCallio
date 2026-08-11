@@ -14,10 +14,12 @@ import crypto from 'crypto';
 
 const PADDLE_API = 'https://api.paddle.com';
 
+// Price IDs must be set in Railway env vars (prefix: pri_)
+// Leave the fallbacks empty — checkout will warn rather than silently use wrong IDs
 const PRICE_IDS = {
-  starter: process.env.PADDLE_STARTER_PRICE_ID || 'pro_01kt2ngxvvcc6w9q587b5z712r',
-  growth:  process.env.PADDLE_GROWTH_PRICE_ID  || 'pro_01kt2nhn9wxy36bnb5rw484zgh',
-  pro:     process.env.PADDLE_PRO_PRICE_ID     || 'pro_01kt2nk0e43xzah6j4rnt7mwdq',
+  starter: process.env.PADDLE_STARTER_PRICE_ID || '',
+  growth:  process.env.PADDLE_GROWTH_PRICE_ID  || '',
+  pro:     process.env.PADDLE_PRO_PRICE_ID     || '',
 };
 
 // =============================================================
@@ -34,25 +36,43 @@ export async function createPaddleCheckout(business) {
   }
 
   try {
-    // Use Paddle Billing v2 hosted checkout for subscriptions
-    // Build the hosted checkout URL with the subscription price ID
+    // Paddle Billing v2: create a transaction via API and return the hosted checkout URL
     const paddleEnv = process.env.PADDLE_ENV === 'sandbox' ? 'sandbox' : 'production';
-    const baseUrl   = paddleEnv === 'sandbox'
-      ? 'https://sandbox-checkout.paddle.com/checkout/custom/preview'
-      : 'https://checkout.paddle.com/checkout/custom/preview';
+    const apiBase   = paddleEnv === 'sandbox'
+      ? 'https://sandbox-api.paddle.com'
+      : 'https://api.paddle.com';
 
-    const params = new URLSearchParams({
-      items: JSON.stringify([{ priceId, quantity: 1 }]),
-      customData: JSON.stringify({
-        business_id:   business.id,
-        business_name: business.business_name,
-        plan:          business.plan
+    const response = await fetch(`${apiBase}/transactions`, {
+      method: 'POST',
+      headers: {
+        Authorization:  `Bearer ${process.env.PADDLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        items: [{ price_id: priceId, quantity: 1 }],
+        customer: { email: business.email },
+        custom_data: {
+          business_id:   business.id,
+          business_name: business.business_name,
+          plan:          business.plan,
+        },
+        checkout: { url: `${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard` },
       }),
-      customerEmail: business.email,
     });
 
-    const checkoutUrl = `${baseUrl}?${params.toString()}`;
-    console.log(`Paddle hosted checkout URL built for ${business.business_name}`);
+    const txData = await response.json();
+    if (!response.ok) {
+      console.error('Paddle transaction error:', JSON.stringify(txData));
+      return null;
+    }
+
+    const checkoutUrl = txData.data?.checkout?.url || null;
+    if (!checkoutUrl) {
+      console.error('Paddle did not return a checkout URL:', JSON.stringify(txData));
+      return null;
+    }
+
+    console.log(`Paddle checkout URL created for ${business.business_name}`);
     return checkoutUrl;
 
   } catch (err) {
