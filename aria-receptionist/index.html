@@ -12,13 +12,13 @@
 <meta property="og:url" content="https://missedcallio.online/"/>
 <meta property="og:title" content="MissedCallio — AI Receptionist for Small Businesses"/>
 <meta property="og:description" content="Never miss a customer again. Aria answers every call 24/7, captures leads, books appointments, and texts you instantly. Start free for 7 days."/>
-<meta property="og:image" content="https://missedcallio.online/og-image.png"/>
+<meta property="og:image" content="https://missedcallio.online/og-image"/>
 <meta property="og:site_name" content="MissedCallio"/>
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="MissedCallio — AI Receptionist for Small Businesses"/>
 <meta name="twitter:description" content="Never miss a customer again. Aria answers every call 24/7, captures leads, books appointments, and texts you instantly."/>
-<meta name="twitter:image" content="https://missedcallio.online/og-image.png"/>
+<meta name="twitter:image" content="https://missedcallio.online/og-image"/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -1315,6 +1315,29 @@ async function handleSignup(e) {
     btn.disabled = false;
   }
 }
+</script>
+
+<!--
+  LIVE CHAT — Tawk.to (free)
+  1. Sign up at https://www.tawk.to
+  2. Create a property → copy the Property ID and Widget ID
+  3. Replace TAWK_PROPERTY_ID and TAWK_WIDGET_ID below with your values
+  4. The chat bubble will appear bottom-right for all visitors
+-->
+<script>
+(function(){
+  var TAWK_PROPERTY_ID = 'TAWK_PROPERTY_ID';  // ← replace with your Tawk.to property ID
+  var TAWK_WIDGET_ID   = 'TAWK_WIDGET_ID';    // ← replace with your Tawk.to widget ID (usually '1')
+  if (TAWK_PROPERTY_ID === 'TAWK_PROPERTY_ID') return; // skip until configured
+
+  var s1 = document.createElement('script');
+  var s0 = document.getElementsByTagName('script')[0];
+  s1.async = true;
+  s1.src   = 'https://embed.tawk.to/' + TAWK_PROPERTY_ID + '/' + TAWK_WIDGET_ID;
+  s1.charset = 'UTF-8';
+  s1.setAttribute('crossorigin','*');
+  s0.parentNode.insertBefore(s1, s0);
+})();
 </script>
 </body>
 </html>

@@ -480,7 +480,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
     if (type === 'tool-calls') {
       const { data: biz } = await supabase
         .from('businesses')
-        .select('status, trial_ends_at, plan, calls_this_month, aria_paused')
+        .select('status, trial_ends_at, plan, calls_this_month, aria_paused, past_due_at')
         .eq('id', businessId)
         .single();
 
@@ -612,7 +612,13 @@ function isExpired(biz) {
   if (biz.status === 'trial' && biz.trial_ends_at) {
     return new Date(biz.trial_ends_at) < new Date();
   }
-  return biz.status === 'cancelled' || biz.status === 'past_due';
+  if (biz.status === 'past_due') {
+    // Give a 5-day grace period before cutting off service
+    if (!biz.past_due_at) return false;
+    const graceDays = 5;
+    return (Date.now() - new Date(biz.past_due_at).getTime()) > graceDays * 24 * 60 * 60 * 1000;
+  }
+  return biz.status === 'cancelled';
 }
 
 // =============================================================
@@ -1683,6 +1689,48 @@ app.delete('/api/account', authMiddleware, async (req, res) => {
 // =============================================================
 //  SEO — robots.txt and sitemap.xml
 // =============================================================
+// =============================================================
+//  OG IMAGE — served as SVG (Twitter, LinkedIn, Slack, iMessage)
+// =============================================================
+app.get('/og-image', (_req, res) => {
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d0d0d"/>
+      <stop offset="100%" stop-color="#1a1005"/>
+    </linearGradient>
+    <linearGradient id="glow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%" id="radial" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#ff5c00" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ff5c00" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <!-- Glow blob -->
+  <ellipse cx="600" cy="315" rx="480" ry="280" fill="url(#radial)"/>
+  <!-- Phone icon circle -->
+  <circle cx="600" cy="180" r="64" fill="#ff5c00" opacity="0.12"/>
+  <circle cx="600" cy="180" r="48" fill="#ff5c00" opacity="0.2"/>
+  <!-- Phone icon -->
+  <text x="600" y="200" font-size="52" text-anchor="middle" fill="#ff5c00">📞</text>
+  <!-- Brand -->
+  <text x="600" y="305" font-family="Georgia, serif" font-size="68" font-weight="700" text-anchor="middle" fill="#ffffff" letter-spacing="-1">Missed<tspan fill="#ff5c00">Callio</tspan></text>
+  <!-- Tagline -->
+  <text x="600" y="365" font-family="Arial, sans-serif" font-size="28" text-anchor="middle" fill="#aaaaaa" letter-spacing="0.5">AI Receptionist for Small Businesses</text>
+  <!-- Divider -->
+  <line x1="440" y1="400" x2="760" y2="400" stroke="#ff5c00" stroke-width="1.5" opacity="0.4"/>
+  <!-- Value prop -->
+  <text x="600" y="445" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#888888">Answers every call · Captures leads · Books appointments</text>
+  <!-- CTA pill -->
+  <rect x="450" y="480" width="300" height="52" rx="26" fill="#ff5c00"/>
+  <text x="600" y="513" font-family="Arial, sans-serif" font-size="20" font-weight="600" text-anchor="middle" fill="#ffffff">Start free for 7 days →</text>
+  <!-- URL -->
+  <text x="600" y="590" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#555555">missedcallio.online</text>
+</svg>`);
+});
+
 app.get('/robots.txt', (_req, res) => {
   res.type('text/plain').send(
     `User-agent: *\nAllow: /\nDisallow: /dashboard\nDisallow: /api/\nDisallow: /admin/\n\nSitemap: ${process.env.SERVER_URL || 'https://missedcallio.online'}/sitemap.xml`
@@ -1776,8 +1824,8 @@ async function runReminderPoller() {
                 html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
                   <h2 style="color:#ff5c00">Your trial has ended</h2>
                   <p>Hi ${biz.name || biz.business_name},</p>
-                  <p>Your 7-day free trial for <strong>${biz.business_name}</strong> has ended. Aria is no longer answering your calls.</p>
-                  <p>Upgrade now to keep Aria working for your business.</p>
+                  <p>Your 7-day free trial for <strong>${biz.business_name}</strong> has ended.</p>
+                  <p>Upgrade now to keep Aria answering your calls. It takes under a minute.</p>
                   <br/>
                   <a href="${SERVER_URL}/#pricing"
                      style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">

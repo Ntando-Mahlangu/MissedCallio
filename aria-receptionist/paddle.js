@@ -156,7 +156,8 @@ export async function handlePaddleWebhook(req, res, supabase, rawBody) {
         const businessId = data.custom_data?.business_id;
         if (businessId) {
           await supabase.from('businesses').update({
-            status: 'past_due'
+            status: 'past_due',
+            past_due_at: new Date().toISOString(),
           }).eq('id', businessId);
 
           // Notify business owner their payment failed
