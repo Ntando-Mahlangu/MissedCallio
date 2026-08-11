@@ -190,7 +190,9 @@ app.post('/signup', signupLimiter, async (req, res) => {
         status:        'trial',
         departments:   departments || null,
         team_size:     teamSize    || null,
-        office_type:   officeType  || 'solo'
+        office_type:   officeType  || 'solo',
+        referral_code: crypto.randomBytes(4).toString('hex'),
+        referred_by_code: req.body.referralCode || null,
       })
       .select()
       .single();
@@ -672,6 +674,19 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (error) console.error('[lead] insert error:', error.message);
   await fireWebhook(businessId, 'lead.created', lead);
 
+  // In-app notification
+  supabase.from('notifications').insert({
+    business_id: businessId,
+    type:  'lead',
+    title: `New lead: ${name}`,
+    body:  `${phone} — ${issue || 'No reason given'}`,
+  }).then(() => {}).catch(() => {});
+
+  // HubSpot CRM push
+  if (!error && business?.hubspot_api_key) {
+    pushLeadToHubSpot(business.hubspot_api_key, lead).catch(() => {});
+  }
+
   // First-lead milestone email
   if (!error && process.env.RESEND_API_KEY) {
     const { count: totalLeads } = await supabase.from('leads')
@@ -783,6 +798,15 @@ async function saveAppointment(businessId, callId, call, { name, phone, service,
   }
 
   await fireWebhook(businessId, 'appointment.created', appt);
+
+  // In-app notification
+  supabase.from('notifications').insert({
+    business_id: businessId,
+    type:  'appointment',
+    title: `Appointment booked: ${name}`,
+    body:  `${service} — ${formatApptTime(apptTime)}`,
+  }).then(() => {}).catch(() => {});
+
   console.log(`[appt] booked: ${name} | ${service} | ${formatApptTime(apptTime)}`);
 
   if (business) {
@@ -917,6 +941,39 @@ async function sendSMS(to, body) {
 // =============================================================
 //  OUTBOUND WEBHOOK — with retry (3 attempts, exponential backoff)
 // =============================================================
+// =============================================================
+//  HUBSPOT CRM — push lead as a contact
+// =============================================================
+async function pushLeadToHubSpot(apiKey, lead) {
+  try {
+    const r = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        properties: {
+          firstname: (lead.name || '').split(' ')[0],
+          lastname:  (lead.name || '').split(' ').slice(1).join(' ') || '',
+          phone:     lead.phone || lead.caller_number || '',
+          hs_lead_status: 'NEW',
+          description: lead.issue || '',
+        }
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      console.warn('[hubspot] push failed:', JSON.stringify(err));
+    } else {
+      console.log(`[hubspot] contact created for ${lead.name}`);
+    }
+  } catch (e) {
+    console.warn('[hubspot] push error:', e.message);
+  }
+}
+
 async function fireWebhook(businessId, event, data) {
   try {
     const { data: biz } = await supabase.from('businesses').select('outbound_webhook_url').eq('id', businessId).single();
@@ -1274,7 +1331,7 @@ async function sendOTPEmail(email, otp) {
 // =============================================================
 app.post('/api/settings', authMiddleware, async (req, res) => {
   const { businessId } = req;
-  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl, aiName, afterHoursOnly } = req.body;
+  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl, aiName, afterHoursOnly, hubspotApiKey } = req.body;
   const updates = {};
   if (bizHours    !== undefined) updates.biz_hours   = bizHours;
   if (bizAddress  !== undefined) updates.biz_address = bizAddress;
@@ -1286,6 +1343,7 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
   if (outboundWebhookUrl !== undefined) updates.outbound_webhook_url = outboundWebhookUrl || null;
   if (aiName !== undefined) updates.ai_name = aiName || null;
   if (afterHoursOnly !== undefined) updates.after_hours_only = !!afterHoursOnly;
+  if (hubspotApiKey !== undefined) updates.hubspot_api_key = hubspotApiKey || null;
   if (Object.keys(updates).length === 0) return res.json({ success: true });
   const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
   if (error) return res.status(500).json({ error: error.message });
@@ -1314,6 +1372,52 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
 });
 
 // =============================================================
+//  IN-APP NOTIFICATIONS
+// =============================================================
+app.get('/api/notifications', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('business_id', req.businessId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ notifications: data || [] });
+});
+
+app.post('/api/notifications/read', authMiddleware, async (req, res) => {
+  const { ids } = req.body; // array of IDs, or omit to mark all read
+  const query = supabase.from('notifications').update({ read: true }).eq('business_id', req.businessId);
+  if (Array.isArray(ids) && ids.length > 0) query.in('id', ids);
+  await query;
+  res.json({ success: true });
+});
+
+// =============================================================
+//  REFERRAL INFO
+// =============================================================
+app.get('/api/referrals', authMiddleware, async (req, res) => {
+  const { data: biz } = await supabase
+    .from('businesses')
+    .select('referral_code')
+    .eq('id', req.businessId)
+    .single();
+  if (!biz) return res.status(404).json({ error: 'Not found' });
+
+  const { count } = await supabase
+    .from('businesses')
+    .select('id', { count: 'exact', head: true })
+    .eq('referred_by_code', biz.referral_code);
+
+  const base = process.env.SERVER_URL || 'https://missedcallio.online';
+  res.json({
+    referralCode: biz.referral_code,
+    referralLink: `${base}/?ref=${biz.referral_code}`,
+    referralCount: count ?? 0,
+  });
+});
+
+// =============================================================
 //  DASHBOARD DATA
 // =============================================================
 app.get('/api/dashboard', authMiddleware, async (req, res) => {
@@ -1326,7 +1430,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, hubspot_api_key, referral_code, referred_by_code, created_at')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })

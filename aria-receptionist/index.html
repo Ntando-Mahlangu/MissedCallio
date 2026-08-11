@@ -1278,6 +1278,7 @@ async function handleSignup(e) {
     plan:         document.getElementById('f-plan').value,
     officeType:   document.getElementById('f-office-type').value,
     departments:  document.getElementById('f-departments').value.trim() || null,
+    referralCode: new URLSearchParams(location.search).get('ref') || undefined,
   };
 
   try {

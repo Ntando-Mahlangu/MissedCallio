@@ -340,6 +340,19 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
     <div class="h-right">
       <span class="plan-badge" id="plan-badge"></span>
       <span id="last-refresh" style="font-size:12px;color:#555;display:flex;align-items:center"><span class="live-dot"></span><span id="last-refresh-text"></span></span>
+      <div style="position:relative;display:inline-block">
+        <button id="notif-bell" onclick="toggleNotifPanel()" class="logout-btn" style="padding:6px 10px;font-size:16px;line-height:1;position:relative" aria-label="Notifications">
+          🔔
+          <span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:#ff5c00;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;line-height:16px;text-align:center"></span>
+        </button>
+        <div id="notif-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:320px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:1000;overflow:hidden">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)">
+            <span style="font-weight:600;font-size:14px">Notifications</span>
+            <button onclick="markAllRead()" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-family:inherit">Mark all read</button>
+          </div>
+          <div id="notif-list" style="max-height:360px;overflow-y:auto"></div>
+        </div>
+      </div>
       <a href="mailto:support@missedcallio.io" class="logout-btn" style="text-decoration:none">Help</a>
       <button class="logout-btn" onclick="logout()">Sign out</button>
     </div>
@@ -595,6 +608,17 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
           </div>
         </div>
 
+        <!-- REFERRAL PANEL -->
+        <div class="info-card" style="margin-top:20px">
+          <div class="info-card-title" style="margin-bottom:4px">Refer a business</div>
+          <p style="font-size:13px;color:var(--gray);margin-bottom:14px">Share your referral link. Every business you refer helps grow MissedCallio — we'll reward active referrers in future.</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="referral-link-input" readonly class="login-input" style="flex:1;min-width:200px;background:var(--surface-2,#f9fafb);cursor:text" value="Loading…"/>
+            <button onclick="copyReferralLink()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit" id="copy-ref-btn">Copy link</button>
+          </div>
+          <p style="font-size:13px;margin-top:10px">Referrals: <strong id="referral-count">—</strong></p>
+        </div>
+
         <!-- SETTINGS EDIT FORM -->
         <div class="info-card" style="margin-top:20px">
           <div class="info-card-title" style="margin-bottom:16px">Edit Settings</div>
@@ -636,6 +660,10 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
             <div class="field" style="flex-direction:row;align-items:center;gap:10px">
               <input id="s-after-hours" type="checkbox" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0"/>
               <label for="s-after-hours" class="login-label" style="margin:0;cursor:pointer">After-hours only mode — Aria answers only when your business is closed</label>
+            </div>
+            <div class="field">
+              <label class="login-label">HubSpot private app token (optional — new leads are pushed as HubSpot contacts)</label>
+              <input id="s-hubspot" class="login-input" type="password" placeholder="pat-na1-…" autocomplete="off"/>
             </div>
             <div class="field">
               <label class="login-label">Outbound webhook URL (optional — sends lead and appointment events to Zapier or your system)</label>
@@ -760,6 +788,103 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.getElementById('login-step-otp').style.display !== 'none') doVerifyOTP();
 });
 
+// ── NOTIFICATIONS ──
+var _notifOpen = false;
+var _notifPollTimer = null;
+
+async function loadNotifications() {
+  const token = localStorage.getItem('mc_token');
+  if (!token) return;
+  try {
+    const r = await fetch('/api/notifications', { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const notifs = d.notifications || [];
+    const unread = notifs.filter(n => !n.read);
+
+    const badge = document.getElementById('notif-badge');
+    if (unread.length > 0) {
+      badge.textContent = unread.length > 9 ? '9+' : unread.length;
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const list = document.getElementById('notif-list');
+    if (!notifs.length) {
+      list.innerHTML = '<div style="padding:24px 16px;text-align:center;color:var(--gray);font-size:13px">No notifications yet</div>';
+      return;
+    }
+    list.innerHTML = notifs.map(n => `
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);${n.read ? '' : 'background:var(--surface-2,#fff8f5)'}">
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <span style="font-size:18px;margin-top:1px">${n.type === 'lead' ? '📞' : n.type === 'appointment' ? '📅' : '🔔'}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:${n.read ? '400' : '600'};margin-bottom:2px">${esc(n.title)}</div>
+            ${n.body ? `<div style="font-size:12px;color:var(--gray);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n.body)}</div>` : ''}
+            <div style="font-size:11px;color:var(--gray-light);margin-top:4px">${fmtTime(n.created_at)}</div>
+          </div>
+          ${n.read ? '' : '<span style="width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;margin-top:4px"></span>'}
+        </div>
+      </div>
+    `).join('');
+  } catch(_) {}
+}
+
+function toggleNotifPanel() {
+  _notifOpen = !_notifOpen;
+  document.getElementById('notif-panel').style.display = _notifOpen ? 'block' : 'none';
+  if (_notifOpen) loadNotifications();
+}
+
+async function markAllRead() {
+  const token = localStorage.getItem('mc_token');
+  if (!token) return;
+  await fetch('/api/notifications/read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({})
+  }).catch(() => {});
+  loadNotifications();
+}
+
+// Close notification panel when clicking outside
+document.addEventListener('click', function(e) {
+  if (!document.getElementById('notif-bell')?.contains(e.target) &&
+      !document.getElementById('notif-panel')?.contains(e.target)) {
+    _notifOpen = false;
+    const panel = document.getElementById('notif-panel');
+    if (panel) panel.style.display = 'none';
+  }
+});
+
+// ── REFERRALS ──
+async function loadReferrals() {
+  const token = localStorage.getItem('mc_token');
+  if (!token) return;
+  try {
+    const r = await fetch('/api/referrals', { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const input = document.getElementById('referral-link-input');
+    if (input) input.value = d.referralLink || '';
+    const countEl = document.getElementById('referral-count');
+    if (countEl) countEl.textContent = d.referralCount || 0;
+  } catch(_) {}
+}
+
+function copyReferralLink() {
+  const input = document.getElementById('referral-link-input');
+  if (!input) return;
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById('copy-ref-btn');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy link', 2000); }
+  }).catch(() => {
+    input.select();
+    document.execCommand('copy');
+  });
+}
+
 async function logout() {
   const token = localStorage.getItem('mc_token');
   if (token) {
@@ -811,6 +936,7 @@ async function loadDashboard(silent = false) {
 function startAutoRefresh() {
   if (_refreshTimer) clearInterval(_refreshTimer);
   _refreshTimer = setInterval(() => loadDashboard(true), 60 * 1000);
+  setInterval(loadNotifications, 30 * 1000);
 }
 
 function setPlanBadge(status) {
@@ -911,6 +1037,8 @@ function renderAll() {
   renderCalls();
   renderAppointments();
   renderInfo();
+  loadNotifications();
+  loadReferrals();
 }
 
 function renderLeads() {
@@ -1072,7 +1200,9 @@ function renderInfo() {
   document.getElementById('s-webhook').value        = b.outbound_webhook_url   || '';
   document.getElementById('s-ai-name').value        = b.ai_name                || '';
   document.getElementById('s-after-hours').checked  = !!b.after_hours_only;
+  if (b.hubspot_api_key) document.getElementById('s-hubspot').placeholder = '••••••••••••• (configured)';
 }
+
 
 async function saveSettings(e) {
   e.preventDefault();
@@ -1096,6 +1226,7 @@ async function saveSettings(e) {
         outboundWebhookUrl:  document.getElementById('s-webhook').value.trim(),
         aiName:              document.getElementById('s-ai-name').value.trim(),
         afterHoursOnly:      document.getElementById('s-after-hours').checked,
+        hubspotApiKey:       document.getElementById('s-hubspot').value.trim() || undefined,
       })
     });
     const d = await r.json();

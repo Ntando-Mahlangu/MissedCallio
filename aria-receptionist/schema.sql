@@ -174,3 +174,24 @@ alter table businesses add column if not exists drip_day6_sent boolean default f
 
 -- Annual billing
 alter table businesses add column if not exists billing_interval text default 'monthly';
+
+-- Referral tracking
+alter table businesses add column if not exists referral_code text unique;
+alter table businesses add column if not exists referred_by_code text;
+create index if not exists businesses_referral_code_idx on businesses (referral_code) where referral_code is not null;
+
+-- CRM integrations
+alter table businesses add column if not exists hubspot_api_key text;
+
+-- In-app notifications
+create table if not exists notifications (
+  id           bigint generated always as identity primary key,
+  business_id  uuid references businesses(id) on delete cascade,
+  type         text not null,
+  title        text not null,
+  body         text,
+  read         boolean default false,
+  created_at   timestamptz default now()
+);
+create index if not exists notifications_biz_idx  on notifications (business_id, created_at desc);
+create index if not exists notifications_unread_idx on notifications (business_id, read) where read = false;
