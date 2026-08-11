@@ -2,10 +2,10 @@
 nixPkgs = ['nodejs_18']
 
 [phases.install]
-cmds = ['cd aria-receptionist && npm install']
+cmds = ['npm install']
 
 [phases.build]
 cmds = []
 
 [start]
-cmd = 'cd aria-receptionist && node server.js'
+cmd = 'node server.js'
