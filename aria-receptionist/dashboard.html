@@ -1060,12 +1060,12 @@ function renderLeads() {
   if (!leads.length) {
     const totalLeads = DATA.stats?.totalLeads || 0;
     const msg = totalLeads === 0
-      ? `<tr><td colspan="6" style="text-align:center;padding:48px 24px;color:var(--gray)">
+      ? `<tr><td colspan="5" style="text-align:center;padding:48px 24px;color:var(--gray)">
           <div style="font-size:32px;margin-bottom:12px">📞</div>
           <div style="font-weight:600;margin-bottom:6px">No leads yet</div>
           <div style="font-size:13px">Make a test call to your MissedCallio number and Aria will capture it here.</div>
          </td></tr>`
-      : `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--gray);font-size:13px">No leads match your search.</td></tr>`;
+      : `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--gray);font-size:13px">No leads match your search.</td></tr>`;
     tbody.innerHTML = msg;
     return;
   }
@@ -1090,7 +1090,7 @@ function renderCalls() {
 
   const tbody = document.getElementById('calls-tbody');
   if (!calls.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:48px 24px;color:var(--gray)">
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:48px 24px;color:var(--gray)">
       <div style="font-size:32px;margin-bottom:12px">🔇</div>
       <div style="font-weight:600;margin-bottom:6px">No calls yet</div>
       <div style="font-size:13px">Forward missed calls to your MissedCallio number to see them here.</div>

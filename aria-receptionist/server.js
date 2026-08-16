@@ -49,10 +49,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      scriptSrc:   ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://embed.tawk.to'],
       styleSrc:    ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
       fontSrc:     ["'self'", 'https://fonts.gstatic.com'],
-      connectSrc:  ["'self'"],
+      connectSrc:  ["'self'", 'https://va.tawk.to'],
       frameSrc:    ["'none'"],
       objectSrc:   ["'none'"],
     }
@@ -781,7 +781,7 @@ function isExpired(biz) {
     const graceDays = 5;
     return (Date.now() - new Date(biz.past_due_at).getTime()) > graceDays * 24 * 60 * 60 * 1000;
   }
-  return biz.status === 'cancelled';
+  return biz.status === 'cancelled' || biz.status === 'expired';
 }
 
 // =============================================================
@@ -791,7 +791,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (!name || !phone) return { success: false, error: 'Missing name or phone' };
 
   const { data: business } = await supabase
-    .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments').eq('id', businessId).single();
+    .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments, hubspot_api_key').eq('id', businessId).single();
 
   const { data: teamMembers } = await supabase
     .from('team_members')
