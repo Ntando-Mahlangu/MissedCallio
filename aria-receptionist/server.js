@@ -33,6 +33,7 @@ if (!process.env.SUPABASE_URL)         throw new Error('SUPABASE_URL is required
 if (!process.env.SUPABASE_SERVICE_KEY) throw new Error('SUPABASE_SERVICE_KEY is required.');
 if (!process.env.TOKEN_SECRET)         throw new Error('TOKEN_SECRET is required — generate with: openssl rand -hex 32');
 if (!process.env.ADMIN_KEY)            throw new Error('ADMIN_KEY is required.');
+if (!process.env.TWILIO_FROM_NUMBER)   console.warn('[startup] TWILIO_FROM_NUMBER not set — SMS alerts will fail silently');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -461,7 +462,7 @@ async function assignPhoneNumber(assistantId, ownerPhone) {
 }
 
 if (!process.env.VAPI_WEBHOOK_SECRET) {
-  console.warn('[startup] VAPI_WEBHOOK_SECRET not set — Vapi webhook is unauthenticated');
+  throw new Error('VAPI_WEBHOOK_SECRET is required — set it in Railway Variables.');
 }
 
 // Plan call limits
@@ -490,6 +491,8 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
 
   const { message }    = req.body;
   const { businessId } = req.params;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(businessId)) return res.status(400).json({ error: 'Bad request' });
   if (!message) return res.json({ result: 'ok' });
 
   const { type, call } = message;
@@ -564,12 +567,8 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
         started_at:    new Date().toISOString(),
         status:        'in_progress'
       });
-      // Increment monthly call counter
-      const { data: bizCount } = await supabase.from('businesses')
-        .select('calls_this_month').eq('id', businessId).single();
-      await supabase.from('businesses')
-        .update({ calls_this_month: (bizCount?.calls_this_month || 0) + 1 })
-        .eq('id', businessId);
+      // Atomic increment — avoids race condition under concurrent calls
+      await supabase.rpc('increment_call_count', { biz_id: businessId });
     }
 
     if (type === 'call-ended') {
@@ -838,7 +837,8 @@ app.post('/twilio/sms', async (req, res) => {
   const twilioAuthToken  = process.env.TWILIO_AUTH_TOKEN;
   const twilioWebhookUrl = process.env.TWILIO_WEBHOOK_URL;
   if (!twilioAuthToken || !twilioWebhookUrl) {
-    console.warn('[twilio/sms] TWILIO_AUTH_TOKEN or TWILIO_WEBHOOK_URL not set — skipping signature verification (dev mode)');
+    console.warn('[twilio/sms] TWILIO_AUTH_TOKEN or TWILIO_WEBHOOK_URL not set — rejecting request');
+    return res.status(403).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
   } else {
     const twilioSig = req.headers['x-twilio-signature'] || '';
     const params    = req.body || {};
@@ -1106,8 +1106,8 @@ app.get('/unsubscribe', async (req, res) => {
   await supabase.from('businesses').update({ voicemail_email: null }).eq('email', email);
   res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:60px">
     <h2>Unsubscribed</h2>
-    <p>You've been removed from MissedCallio email notifications for ${email}.</p>
-    <p>To manage your account visit <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard">your dashboard</a>.</p>
+    <p>Your voicemail notification emails have been stopped.</p>
+    <p>To fully manage your notification preferences, visit <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard">your dashboard</a>.</p>
   </body></html>`);
 });
 

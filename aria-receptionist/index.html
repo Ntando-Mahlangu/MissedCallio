@@ -1381,24 +1381,38 @@ async function handleSignup(e) {
       return;
     }
 
-    // Success — show buttons for checkout and/or dashboard
+    // Success — show buttons for checkout and/or dashboard (no innerHTML with server data)
     document.getElementById('signup-form').style.display = 'none';
-    let detail = '';
+    var successDetail = document.getElementById('success-detail');
+    successDetail.innerHTML = '';
+    var para = document.createElement('p');
     if (data.missedcallNumber) {
-      detail = `Your MissedCallio number is <strong>${data.missedcallNumber}</strong>.<br/><br/>
-         Go to your phone settings and forward your calls to that number.<br/>
-         Aria will answer every call from this moment on.<br/><br/>`;
+      para.textContent = 'Your MissedCallio number is ';
+      var strong = document.createElement('strong');
+      strong.textContent = data.missedcallNumber;
+      para.appendChild(strong);
+      para.appendChild(document.createTextNode('. Go to your phone settings and forward your calls to that number. Aria will answer every call from this moment on.'));
     } else {
-      detail = `Check your email for setup instructions. Aria will be answering your calls shortly.<br/><br/>`;
+      para.textContent = 'Check your email for setup instructions. Aria will be answering your calls shortly.';
     }
-    let btnHtml = '';
+    successDetail.appendChild(para);
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'margin-top:16px;display:flex;flex-wrap:wrap;gap:10px';
     if (data.checkoutUrl) {
-      btnHtml += `<a href="${data.checkoutUrl}" style="display:inline-block;background:#ff5c00;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600;margin:8px 8px 0 0">Complete payment →</a>`;
+      var aCheckout = document.createElement('a');
+      aCheckout.href = data.checkoutUrl;
+      aCheckout.textContent = 'Complete payment →';
+      aCheckout.style.cssText = 'display:inline-block;background:#ff5c00;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600';
+      btnRow.appendChild(aCheckout);
     }
     if (data.dashboardUrl) {
-      btnHtml += `<a href="${data.dashboardUrl}" style="display:inline-block;background:#222;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600;margin:8px 0 0 0">Go to your dashboard →</a>`;
+      var aDash = document.createElement('a');
+      aDash.href = data.dashboardUrl;
+      aDash.textContent = 'Go to your dashboard →';
+      aDash.style.cssText = 'display:inline-block;background:#222;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600';
+      btnRow.appendChild(aDash);
     }
-    document.getElementById('success-detail').innerHTML = detail + btnHtml;
+    successDetail.appendChild(btnRow);
     document.getElementById('success-msg').style.display = 'block';
 
   } catch (err) {
