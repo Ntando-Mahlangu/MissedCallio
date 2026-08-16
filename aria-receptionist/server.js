@@ -172,14 +172,37 @@ app.post('/signup', signupLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Please enter a valid email address.' });
   }
 
-  try {
-    console.log(`[signup] ${businessName} (${plan || 'growth'})`);
+  const normalizedEmail = email.toLowerCase().trim();
 
-    const { data: business, error: bizErr } = await supabase
+  try {
+    console.log(`[signup] ${businessName} (${plan || 'growth'}) — sending verification PIN`);
+
+    // Check for existing verified account
+    const { data: existing } = await supabase
       .from('businesses')
-      .insert({
+      .select('id, status')
+      .eq('email', normalizedEmail)
+      .single();
+
+    if (existing && existing.status !== 'pending_verification') {
+      return res.status(400).json({ error: 'This email is already registered.' });
+    }
+
+    // Upsert business in pending state (allows re-sending PIN if they refresh)
+    let business;
+    if (existing) {
+      const { data } = await supabase.from('businesses')
+        .update({ name: `${firstName} ${lastName}`, business_name: businessName,
+          mobile_number: normalizePhone(mobileNumber), industry: industry || 'General business',
+          biz_hours: bizHours || 'Monday to Friday 8am–6pm', biz_address: bizAddress || '',
+          biz_pricing: bizPricing || 'Please call us for a quote', plan: plan || 'growth',
+          departments: departments || null, team_size: teamSize || null, office_type: officeType || 'solo',
+        }).eq('id', existing.id).select().single();
+      business = data;
+    } else {
+      const { data, error: bizErr } = await supabase.from('businesses').insert({
         name:          `${firstName} ${lastName}`,
-        email:         email.toLowerCase().trim(),
+        email:         normalizedEmail,
         business_name: businessName,
         mobile_number: normalizePhone(mobileNumber),
         industry:      industry  || 'General business',
@@ -188,23 +211,79 @@ app.post('/signup', signupLimiter, async (req, res) => {
         biz_pricing:   bizPricing || 'Please call us for a quote',
         plan:          plan || 'growth',
         trial_ends_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        status:        'trial',
+        status:        'pending_verification',
         departments:   departments || null,
         team_size:     teamSize    || null,
         office_type:   officeType  || 'solo',
         referral_code: crypto.randomBytes(4).toString('hex'),
         referred_by_code: req.body.referralCode || null,
-      })
-      .select()
-      .single();
-
-    if (bizErr) {
-      if (bizErr.message.includes('unique')) {
-        return res.status(400).json({ error: 'This email is already registered.' });
-      }
-      throw new Error(bizErr.message);
+      }).select().single();
+      if (bizErr) throw new Error(bizErr.message);
+      business = data;
     }
 
+    // Generate 6-digit PIN and store it
+    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    await supabase.from('auth_otps').update({ used: true }).eq('email', normalizedEmail).eq('used', false);
+    await supabase.from('auth_otps').insert({ email: normalizedEmail, otp: pin, expires_at: expires });
+
+    // Send PIN email
+    await sendVerificationPin(normalizedEmail, firstName, pin);
+
+    res.json({ success: true, needsVerification: true });
+
+  } catch (err) {
+    console.error('[signup] error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again or contact support.' });
+  }
+});
+
+// =============================================================
+//  VERIFY SIGNUP PIN — activates the account
+// =============================================================
+app.post('/api/verify-signup', signupLimiter, async (req, res) => {
+  const { email, pin } = req.body;
+  if (!email || !pin) return res.status(400).json({ error: 'Email and PIN are required.' });
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  try {
+    // Check PIN
+    const { data: record } = await supabase
+      .from('auth_otps')
+      .select('*')
+      .eq('email', normalizedEmail)
+      .eq('otp', String(pin).trim())
+      .eq('used', false)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!record) {
+      return res.status(400).json({ error: 'Incorrect PIN or PIN has expired. Please try again.' });
+    }
+
+    // Mark PIN used
+    await supabase.from('auth_otps').update({ used: true }).eq('id', record.id);
+
+    // Fetch the pending business
+    const { data: business } = await supabase
+      .from('businesses')
+      .select('*')
+      .eq('email', normalizedEmail)
+      .eq('status', 'pending_verification')
+      .single();
+
+    if (!business) {
+      return res.status(400).json({ error: 'Account not found. Please sign up again.' });
+    }
+
+    // Activate account
+    await supabase.from('businesses').update({ status: 'trial' }).eq('id', business.id);
+
+    // Set up Vapi assistant
     let assistantId = null;
     let phoneNumber  = process.env.DEFAULT_MISSEDCALL_NUMBER || null;
 
@@ -213,7 +292,7 @@ app.post('/signup', signupLimiter, async (req, res) => {
         assistantId = await createVapiAssistant(business);
         phoneNumber  = await assignPhoneNumber(assistantId, business.mobile_number);
       } catch (vapiErr) {
-        console.warn('[signup] Vapi setup failed:', vapiErr.message);
+        console.warn('[verify-signup] Vapi setup failed:', vapiErr.message);
       }
     }
 
@@ -223,42 +302,99 @@ app.post('/signup', signupLimiter, async (req, res) => {
         .eq('id', business.id);
     }
 
-    await sendWelcomeEmail({ ...business, name: `${firstName} ${lastName}` }, phoneNumber);
+    await sendWelcomeEmail(business, phoneNumber);
 
     if (process.env.TWILIO_ACCOUNT_SID && process.env.OWNER_PHONE) {
       await sendSMS(
         process.env.OWNER_PHONE,
-        `New MissedCallio signup!\nBusiness: ${businessName}\nPlan: ${plan || 'growth'}\nContact: ${normalizePhone(mobileNumber)}`
+        `New MissedCallio signup!\nBusiness: ${business.business_name}\nPlan: ${business.plan}\nContact: ${business.mobile_number}`
       );
     }
 
-    // Create Paddle checkout if configured
     let checkoutUrl = null;
     if (process.env.PADDLE_API_KEY) {
       try {
-        checkoutUrl = await createPaddleCheckout({ ...business, name: `${firstName} ${lastName}` });
+        checkoutUrl = await createPaddleCheckout(business);
       } catch (paddleErr) {
-        console.warn('[signup] Paddle checkout failed:', paddleErr.message);
+        console.warn('[verify-signup] Paddle checkout failed:', paddleErr.message);
       }
     }
 
-    console.log(`[signup] ${businessName} live${phoneNumber ? ' on ' + phoneNumber : ''}`);
+    console.log(`[signup] ${business.business_name} verified and live${phoneNumber ? ' on ' + phoneNumber : ''}`);
     const dashboardUrl = process.env.SERVER_URL ? process.env.SERVER_URL + '/dashboard' : '/dashboard';
     res.json({
       success: true,
       missedcallNumber: phoneNumber,
       checkoutUrl,
       dashboardUrl,
-      message: phoneNumber
-        ? `You're live! Forward your calls to ${phoneNumber}`
-        : `You're signed up! Check your email for next steps.`
     });
 
   } catch (err) {
-    console.error('[signup] error:', err.message);
-    res.status(500).json({ error: 'Something went wrong. Please try again or contact support.' });
+    console.error('[verify-signup] error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
+
+// =============================================================
+//  RESEND PIN — re-sends a fresh PIN for pending_verification accounts
+// =============================================================
+app.post('/api/resend-pin', signupLimiter, async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+  try {
+    const { data: business, error } = await supabase
+      .from('businesses')
+      .select('id, status, name')
+      .eq('email', email.toLowerCase().trim())
+      .single();
+
+    if (error || !business || business.status !== 'pending_verification') {
+      return res.status(400).json({ error: 'No pending account found for this email.' });
+    }
+
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    await supabase.from('auth_otps').insert({ email: email.toLowerCase().trim(), otp: pin, expires_at: expires });
+
+    const firstName = business.name?.split(' ')[0] || 'there';
+    await sendVerificationPin(email.toLowerCase().trim(), firstName, pin);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[resend-pin] error:', err.message);
+    return res.status(500).json({ error: 'Could not resend code. Please try again.' });
+  }
+});
+
+async function sendVerificationPin(email, firstName, pin) {
+  if (!process.env.RESEND_API_KEY) {
+    console.log(`[signup] verification PIN for ${email}: ${pin}`);
+    return;
+  }
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
+        to:      email,
+        subject: `Your MissedCallio verification code: ${pin}`,
+        html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+          <h2 style="color:#ff5c00;margin-bottom:8px">Verify your email</h2>
+          <p style="color:#444;margin-bottom:24px">Hi ${firstName}, enter this code to activate your MissedCallio account:</p>
+          <div style="font-size:52px;font-weight:900;letter-spacing:14px;text-align:center;margin:28px 0;color:#111;font-family:monospace">${pin}</div>
+          <p style="color:#888;text-align:center;font-size:14px">This code expires in 10 minutes. Don't share it with anyone.</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:28px 0"/>
+          <p style="color:#aaa;font-size:12px;text-align:center">If you didn't sign up for MissedCallio, you can safely ignore this email.</p>
+        </div>`
+      })
+    });
+  } catch (err) {
+    console.error('[signup] PIN email failed:', err.message);
+  }
+}
 
 // =============================================================
 //  CREATE VAPI ASSISTANT

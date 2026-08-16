@@ -561,6 +561,25 @@ h1 em {
 .success-msg p { color: #888; line-height: 1.6; }
 .success-icon { font-size: 48px; margin-bottom: 16px; }
 
+/* ── PIN DIGITS ── */
+.pin-digit {
+  width: 52px; height: 56px;
+  background: rgba(255,255,255,.08);
+  border: 1.5px solid rgba(255,255,255,.2);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: center;
+  caret-color: var(--accent);
+  transition: border-color .2s, box-shadow .2s;
+  outline: none;
+}
+.pin-digit:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255,92,0,.25);
+}
+
 /* ── USE CASES ── */
 .use-cases {
   display: grid;
@@ -1295,6 +1314,28 @@ function toggleFaq(btn) {
       <p class="form-note">No credit card required · Cancel anytime · Setup takes 5 minutes</p>
     </form>
 
+    <!-- PIN verification step -->
+    <div id="pin-step" style="display:none;text-align:center;max-width:420px;margin:0 auto">
+      <div style="font-size:48px;margin-bottom:12px">📧</div>
+      <h3 style="color:#fff;font-size:24px;margin-bottom:8px">Check your email</h3>
+      <p id="pin-sent-to" style="color:rgba(255,255,255,.6);margin-bottom:28px">We've sent a 6-digit code to your email.</p>
+      <div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px">
+        <input id="pin-d1" class="pin-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="one-time-code" aria-label="Digit 1"/>
+        <input id="pin-d2" class="pin-digit" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 2"/>
+        <input id="pin-d3" class="pin-digit" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 3"/>
+        <span style="color:rgba(255,255,255,.4);font-size:28px;line-height:56px">–</span>
+        <input id="pin-d4" class="pin-digit" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 4"/>
+        <input id="pin-d5" class="pin-digit" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 5"/>
+        <input id="pin-d6" class="pin-digit" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 6"/>
+      </div>
+      <div id="pin-error" style="display:none;color:#ff6b6b;margin-bottom:12px;font-size:14px"></div>
+      <button id="pin-btn" onclick="handlePinVerify()" style="width:100%;background:#ff5c00;color:#fff;border:none;border-radius:99px;padding:14px 0;font-size:16px;font-weight:700;cursor:pointer;transition:opacity .2s">Verify &amp; activate →</button>
+      <div style="margin-top:16px">
+        <span id="pin-resend-msg" style="color:rgba(255,255,255,.5);font-size:14px"></span>
+        <button id="pin-resend-btn" onclick="handlePinResend()" style="background:none;border:none;color:rgba(255,255,255,.5);font-size:14px;cursor:pointer;text-decoration:underline;padding:0">Resend code</button>
+      </div>
+    </div>
+
     <div class="success-msg" id="success-msg">
       <div class="success-icon">🎉</div>
       <h3>You're in!</h3>
@@ -1381,6 +1422,19 @@ async function handleSignup(e) {
       return;
     }
 
+    // Email verification required — show PIN entry step
+    if (data.needsVerification) {
+      document.getElementById('signup-form').style.display = 'none';
+      var sentTo = document.getElementById('pin-sent-to');
+      sentTo.textContent = "We've sent a 6-digit code to " + body.email + ". Enter it below to activate your account.";
+      document.getElementById('pin-step').style.display = 'block';
+      // store email for verify call
+      document.getElementById('pin-step').dataset.email = body.email;
+      setupPinInputs();
+      document.getElementById('pin-d1').focus();
+      return;
+    }
+
     // Success — show buttons for checkout and/or dashboard (no innerHTML with server data)
     document.getElementById('signup-form').style.display = 'none';
     var successDetail = document.getElementById('success-detail');
@@ -1421,6 +1475,144 @@ async function handleSignup(e) {
     btn.textContent = 'Start my free trial →';
     btn.disabled = false;
   }
+}
+
+// ── PIN VERIFICATION ──
+function setupPinInputs() {
+  var ids = ['pin-d1','pin-d2','pin-d3','pin-d4','pin-d5','pin-d6'];
+  ids.forEach(function(id, i) {
+    var el = document.getElementById(id);
+    el.value = '';
+    el.oninput = function(e) {
+      var val = e.target.value.replace(/\D/g,'');
+      e.target.value = val.slice(-1);
+      if (val && i < 5) document.getElementById(ids[i+1]).focus();
+    };
+    el.onkeydown = function(e) {
+      if (e.key === 'Backspace' && !e.target.value && i > 0) {
+        document.getElementById(ids[i-1]).focus();
+      }
+    };
+    el.onpaste = function(e) {
+      var pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g,'');
+      if (pasted.length >= 6) {
+        e.preventDefault();
+        pasted.slice(0,6).split('').forEach(function(ch, j) {
+          document.getElementById(ids[j]).value = ch;
+        });
+        document.getElementById(ids[5]).focus();
+      }
+    };
+  });
+}
+
+function getPinValue() {
+  return ['pin-d1','pin-d2','pin-d3','pin-d4','pin-d5','pin-d6']
+    .map(function(id){ return document.getElementById(id).value; }).join('');
+}
+
+async function handlePinVerify() {
+  var pin = getPinValue();
+  var email = document.getElementById('pin-step').dataset.email;
+  var btn = document.getElementById('pin-btn');
+  var errBox = document.getElementById('pin-error');
+  errBox.style.display = 'none';
+
+  if (pin.length < 6) {
+    errBox.textContent = 'Please enter all 6 digits.';
+    errBox.style.display = 'block';
+    return;
+  }
+
+  btn.textContent = 'Verifying…';
+  btn.disabled = true;
+
+  try {
+    var res = await fetch('/api/verify-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, pin: pin })
+    });
+    var data = await res.json();
+
+    if (!res.ok || !data.success) {
+      errBox.textContent = data.error || 'Incorrect code. Please try again.';
+      errBox.style.display = 'block';
+      btn.textContent = 'Verify & activate →';
+      btn.disabled = false;
+      return;
+    }
+
+    // Activation succeeded — show success screen
+    document.getElementById('pin-step').style.display = 'none';
+    var successDetail = document.getElementById('success-detail');
+    successDetail.innerHTML = '';
+    var para = document.createElement('p');
+    if (data.missedcallNumber) {
+      para.textContent = 'Your MissedCallio number is ';
+      var strong = document.createElement('strong');
+      strong.textContent = data.missedcallNumber;
+      para.appendChild(strong);
+      para.appendChild(document.createTextNode('. Forward your calls to that number and Aria will answer from this moment on.'));
+    } else {
+      para.textContent = 'Check your email for setup instructions. Aria will be answering your calls shortly.';
+    }
+    successDetail.appendChild(para);
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'margin-top:16px;display:flex;flex-wrap:wrap;gap:10px';
+    if (data.checkoutUrl) {
+      var aCheckout = document.createElement('a');
+      aCheckout.href = data.checkoutUrl;
+      aCheckout.textContent = 'Complete payment →';
+      aCheckout.style.cssText = 'display:inline-block;background:#ff5c00;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600';
+      btnRow.appendChild(aCheckout);
+    }
+    if (data.dashboardUrl) {
+      var aDash = document.createElement('a');
+      aDash.href = data.dashboardUrl;
+      aDash.textContent = 'Go to your dashboard →';
+      aDash.style.cssText = 'display:inline-block;background:#222;color:#fff;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:600';
+      btnRow.appendChild(aDash);
+    }
+    successDetail.appendChild(btnRow);
+    document.getElementById('success-msg').style.display = 'block';
+
+  } catch (err) {
+    errBox.textContent = 'Network error — please try again.';
+    errBox.style.display = 'block';
+    btn.textContent = 'Verify & activate →';
+    btn.disabled = false;
+  }
+}
+
+var _pinResendCooldown = false;
+async function handlePinResend() {
+  if (_pinResendCooldown) return;
+  var email = document.getElementById('pin-step').dataset.email;
+  var resendBtn = document.getElementById('pin-resend-btn');
+  var resendMsg = document.getElementById('pin-resend-msg');
+
+  resendBtn.disabled = true;
+  _pinResendCooldown = true;
+  resendMsg.textContent = 'Sending…';
+
+  try {
+    var res = await fetch('/api/resend-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email })
+    });
+    var data = await res.json();
+    resendMsg.textContent = data.success ? 'Code sent! Check your inbox.' : (data.error || 'Could not resend.');
+  } catch(e) {
+    resendMsg.textContent = 'Network error. Try again.';
+  }
+
+  setTimeout(function() {
+    _pinResendCooldown = false;
+    resendBtn.disabled = false;
+    resendMsg.textContent = '';
+  }, 60000);
 }
 </script>
 
