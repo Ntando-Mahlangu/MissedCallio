@@ -1643,31 +1643,29 @@ function toggleBilling() {
 </script>
 
 <!-- COOKIE CONSENT BANNER -->
-<div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#1a1a1a;color:#fff;padding:16px 24px;z-index:10001;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-family:'DM Sans',sans-serif">
+<div id="cookie-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#1a1a1a;color:#fff;padding:16px 24px;z-index:10001;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-family:'DM Sans',sans-serif">
   <span style="flex:1;min-width:220px">We use cookies to keep you logged in and understand how you use the site. <a href="/privacy" style="color:#ff9966;text-decoration:underline">Privacy policy</a></span>
-  <div style="display:flex;gap:10px">
-    <button onclick="acceptCookies()" style="background:#ff5c00;color:#fff;border:none;border-radius:8px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Accept</button>
-    <button onclick="declineCookies()" style="background:transparent;color:#aaa;border:1px solid #555;border-radius:8px;padding:9px 20px;font-size:14px;cursor:pointer;font-family:'DM Sans',sans-serif">Decline</button>
+  <div style="display:flex;gap:10px;flex-shrink:0">
+    <button id="cookie-accept-btn" style="background:#ff5c00;color:#fff;border:none;border-radius:8px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;position:relative;z-index:10002">Accept</button>
+    <button id="cookie-decline-btn" style="background:transparent;color:#aaa;border:1px solid #555;border-radius:8px;padding:9px 20px;font-size:14px;cursor:pointer;font-family:'DM Sans',sans-serif;position:relative;z-index:10002">Decline</button>
   </div>
 </div>
 <script>
 (function(){
+  var banner = document.getElementById('cookie-banner');
   var consent = localStorage.getItem('mc_cookie_consent');
-  if (!consent) {
-    var banner = document.getElementById('cookie-banner');
-    if (banner) banner.style.display = 'flex';
-  }
+  if (!consent) banner.style.display = 'flex';
+
+  document.getElementById('cookie-accept-btn').addEventListener('click', function() {
+    localStorage.setItem('mc_cookie_consent', 'accepted');
+    banner.style.display = 'none';
+    initTawk();
+  });
+  document.getElementById('cookie-decline-btn').addEventListener('click', function() {
+    localStorage.setItem('mc_cookie_consent', 'declined');
+    banner.style.display = 'none';
+  });
 })();
-function acceptCookies() {
-  localStorage.setItem('mc_cookie_consent', 'accepted');
-  document.getElementById('cookie-banner').style.display = 'none';
-  // Initialise Tawk.to if configured
-  initTawk();
-}
-function declineCookies() {
-  localStorage.setItem('mc_cookie_consent', 'declined');
-  document.getElementById('cookie-banner').style.display = 'none';
-}
 </script>
 
 <!--
