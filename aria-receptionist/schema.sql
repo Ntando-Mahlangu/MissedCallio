@@ -133,6 +133,13 @@ returns bigint language sql stable as $$
   ) sub;
 $$;
 
+-- Atomic call counter increment (avoids read-modify-write race under concurrent calls)
+create or replace function increment_call_count(biz_id uuid)
+returns void language sql as $$
+  update businesses set calls_this_month = coalesce(calls_this_month, 0) + 1
+  where id = biz_id;
+$$;
+
 -- Call volume tracking
 alter table businesses add column if not exists calls_this_month int default 0;
 alter table businesses add column if not exists calls_reset_at timestamptz default date_trunc('month', now());
