@@ -1289,7 +1289,7 @@ async function loadStaff() {
       <td>${esc(m.role || '—')}</td>
       <td>${esc(m.phone || '—')}</td>
       <td>${esc(m.email || '—')}</td>
-      <td><button onclick="removeStaff(${m.id})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:13px">Remove</button></td>
+      <td><button onclick="removeStaff('${m.id}')" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:13px">Remove</button></td>
     </tr>`).join('');
   } catch(e) {
     console.error('loadStaff error', e);
@@ -1353,7 +1353,7 @@ async function loadTeam() {
       <td>${esc(m.name || '—')}</td>
       <td>${esc(m.role || 'member')}</td>
       <td style="color:var(--gray);font-size:13px">${fmtDate(m.created_at)}</td>
-      <td><button onclick="removeTeamMember(${m.id})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:13px">Remove</button></td>
+      <td><button onclick="removeTeamMember('${m.id}')" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:13px">Remove</button></td>
     </tr>`).join('');
   } catch(e) {
     console.error('loadTeam error', e);

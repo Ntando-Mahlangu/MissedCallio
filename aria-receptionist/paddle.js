@@ -280,6 +280,15 @@ export async function cancelPaddleSubscription(subscriptionId) {
 }
 
 // Helper — reuse SMS function from server.js
+function normalizePhone(num) {
+  if (!num) return num;
+  const digits = num.replace(/\D/g, '');
+  if (num.startsWith('+')) return '+' + digits;
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+  return '+' + digits;
+}
+
 async function sendSMS(to, body) {
   if (!process.env.TWILIO_ACCOUNT_SID) return;
 
@@ -296,7 +305,7 @@ async function sendSMS(to, body) {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: new URLSearchParams({
-        To:   to,
+        To:   normalizePhone(to),
         From: process.env.TWILIO_FROM_NUMBER,
         Body: body
       })

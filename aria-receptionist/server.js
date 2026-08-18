@@ -356,6 +356,8 @@ app.post('/api/resend-pin', signupLimiter, async (req, res) => {
     const pin = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
+    // Invalidate any prior OTPs for this email before issuing a new one
+    await supabase.from('auth_otps').update({ used: true }).eq('email', email.toLowerCase().trim()).eq('used', false);
     await supabase.from('auth_otps').insert({ email: email.toLowerCase().trim(), otp: pin, expires_at: expires });
 
     const firstName = business.name?.split(' ')[0] || 'there';
@@ -597,8 +599,8 @@ async function assignPhoneNumber(assistantId, ownerPhone) {
   }
 }
 
-if (!process.env.VAPI_WEBHOOK_SECRET) {
-  throw new Error('VAPI_WEBHOOK_SECRET is required — set it in Railway Variables.');
+if (process.env.VAPI_API_KEY && !process.env.VAPI_WEBHOOK_SECRET) {
+  throw new Error('VAPI_WEBHOOK_SECRET is required when VAPI_API_KEY is set — add it in Railway Variables.');
 }
 
 // Plan call limits
@@ -619,8 +621,14 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
       .createHmac('sha256', process.env.VAPI_WEBHOOK_SECRET)
       .update(req.rawBody)
       .digest('hex');
-    if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
-      console.warn('[webhook] rejected — bad HMAC signature');
+    try {
+      const sigBuf = Buffer.from(sig || '', 'hex');
+      const expBuf = Buffer.from(expected, 'hex');
+      if (!sig || sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+        console.warn('[webhook] rejected — bad HMAC signature');
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    } catch {
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
@@ -1503,7 +1511,13 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
         await fetch(`https://api.vapi.ai/assistant/${biz.vapi_assistant_id}`, {
           method:  'PATCH',
           headers: { Authorization: `Bearer ${process.env.VAPI_API_KEY}`, 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ model: { systemPrompt: buildSystemPrompt(biz) } }),
+          body:    JSON.stringify({ model: {
+            provider:     'anthropic',
+            model:        'claude-sonnet-4-5',
+            systemPrompt: buildSystemPrompt(biz),
+            temperature:  0.7,
+            maxTokens:    250,
+          } }),
         });
         console.log(`[vapi] assistant prompt updated for ${businessId}`);
       }
@@ -2080,7 +2094,7 @@ async function runReminderPoller() {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const { count } = await supabase.from('businesses')
         .update({ calls_this_month: 0, calls_reset_at: monthStart })
-        .lt('calls_reset_at', monthStart)
+        .or(`calls_reset_at.is.null,calls_reset_at.lt.${monthStart}`)
         .select('id', { count: 'exact', head: true });
       if (count > 0) console.log(`[poller] monthly call counter reset for ${count} businesses`);
     }
