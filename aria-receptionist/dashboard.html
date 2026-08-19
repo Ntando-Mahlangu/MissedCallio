@@ -1026,7 +1026,7 @@ function renderAll() {
   const appts = DATA.appointments || [];
   const now = Date.now();
   const upcoming = appts.filter(a => new Date(a.appointment_time) > now);
-  countUp(document.getElementById('s-appts'), appts.length);
+  countUp(document.getElementById('s-appts'), DATA.stats?.totalAppointments ?? appts.length);
   document.getElementById('s-appts-upcoming').textContent = `${upcoming.length} upcoming`;
 
   // Only show appointments tab for growth/pro plans

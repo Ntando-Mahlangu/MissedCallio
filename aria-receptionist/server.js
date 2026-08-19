@@ -370,19 +370,55 @@ app.post('/api/resend-pin', signupLimiter, async (req, res) => {
   }
 });
 
+// =============================================================
+//  UNIFIED EMAIL HELPER — supports Brevo (primary) or Resend
+//  Set BREVO_API_KEY  → uses Brevo  (api.brevo.com)
+//  Set RESEND_API_KEY → uses Resend (api.resend.com)
+// =============================================================
+async function sendEmail({ to, subject, html }) {
+  const from = `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`;
+
+  if (process.env.BREVO_API_KEY) {
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method:  'POST',
+      headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender:  { name: 'MissedCallio', email: `noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}` },
+        to:      [{ email: to }],
+        subject,
+        htmlContent: html,
+      }),
+    });
+    return r;
+  }
+
+  if (hasEmailProvider()) {
+    const r = await fetch('https://api.resend.com/emails', {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, subject, html }),
+    });
+    return r;
+  }
+
+  // No provider configured — log and return a fake ok response
+  console.log(`[email] no provider set — would send "${subject}" to ${to}`);
+  return { ok: true, status: 200 };
+}
+
+function hasEmailProvider() {
+  return !!(process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
+}
+
 async function sendVerificationPin(email, firstName, pin) {
-  if (!process.env.RESEND_API_KEY) {
+  if (!hasEmailProvider()) {
     console.log(`[signup] verification PIN for ${email}: ${pin}`);
     return;
   }
   try {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
-        to:      email,
-        subject: `Your MissedCallio verification code: ${pin}`,
+    await sendEmail({
+      to:      email,
+      subject: `Your MissedCallio verification code: ${pin}`,
         html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00;margin-bottom:8px">Verify your email</h2>
           <p style="color:#444;margin-bottom:24px">Hi ${firstName}, enter this code to activate your MissedCallio account:</p>
@@ -391,7 +427,6 @@ async function sendVerificationPin(email, firstName, pin) {
           <hr style="border:none;border-top:1px solid #eee;margin:28px 0"/>
           <p style="color:#aaa;font-size:12px;text-align:center">If you didn't sign up for MissedCallio, you can safely ignore this email.</p>
         </div>`
-      })
     });
   } catch (err) {
     console.error('[signup] PIN email failed:', err.message);
@@ -743,17 +778,13 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
         const { count: apptCount } = await supabase.from('appointments')
           .select('id', { count: 'exact', head: true }).eq('call_id', callId);
 
-        if ((!leadCount && !apptCount) && biz && process.env.RESEND_API_KEY) {
+        if ((!leadCount && !apptCount) && biz && hasEmailProvider()) {
           const sendTo = biz.voicemail_email || biz.email;
           const callerNum = call?.customer?.number || 'Unknown';
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-              to: sendTo,
-              subject: `Voicemail from ${callerNum} — ${biz.business_name}`,
-              html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+          await sendEmail({
+            to:      sendTo,
+            subject: `Voicemail from ${callerNum} — ${biz.business_name}`,
+            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
                 <h2 style="color:#ff5c00">You have a voicemail</h2>
                 <p>A caller hung up before leaving details. Duration: ${duration || 0}s.</p>
                 <p><strong>Caller:</strong> ${callerNum}</p>
@@ -764,7 +795,6 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
                 <br/><br/>
                 <p style="color:#888">— MissedCallio</p>
               </div>`
-            })
           });
           console.log(`[voicemail] emailed recording for call ${callId} to ${sendTo}`);
         }
@@ -835,20 +865,16 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   }
 
   // First-lead milestone email
-  if (!error && process.env.RESEND_API_KEY) {
+  if (!error && hasEmailProvider()) {
     const { count: totalLeads } = await supabase.from('leads')
       .select('id', { count: 'exact', head: true }).eq('business_id', businessId);
     if (totalLeads === 1) {
       const { data: biz } = await supabase.from('businesses')
         .select('email, name, business_name').eq('id', businessId).single();
       if (biz) {
-        fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        sendEmail({
             to:      biz.email,
-            subject: `🎉 Aria just captured your first lead — ${lead.name}`,
+            subject: `Aria just captured your first lead — ${lead.name}`,
             html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
               <h2 style="color:#ff5c00">Your first lead is in!</h2>
               <p>Hi ${biz.name},</p>
@@ -1191,16 +1217,11 @@ async function routeToStaff(businessId, callId, call, { staff_name }) {
     await sendSMS(normalizePhone(match.phone), `MissedCallio: ${callerNum} is on the phone asking for you. Call them back asap.`);
   }
 
-  if (match.email && !match.phone && process.env.RESEND_API_KEY) {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-        to: match.email,
-        subject: `Someone is asking for you`,
-        html: `<p>A caller is on the line asking for you (${match.name}). Caller number: ${call?.customer?.number || 'unknown'}.</p>`
-      })
+  if (match.email && !match.phone && hasEmailProvider()) {
+    await sendEmail({
+      to:      match.email,
+      subject: `Someone is asking for you`,
+      html:    `<p>A caller is on the line asking for you (${match.name}). Caller number: ${call?.customer?.number || 'unknown'}.</p>`
     });
   }
 
@@ -1259,21 +1280,17 @@ app.get('/unsubscribe', async (req, res) => {
 //  WELCOME EMAIL
 // =============================================================
 async function sendWelcomeEmail(business, phoneNumber) {
-  if (!process.env.RESEND_API_KEY) return;
+  if (!hasEmailProvider()) return;
   const instructions = phoneNumber
     ? `Your MissedCallio number is: <strong>${phoneNumber}</strong><br/><br/>
        <strong>Activate in 30 seconds:</strong><br/>
        Go to your phone settings → Call Forwarding → Forward to <strong>${phoneNumber}</strong>`
     : `Our team will contact you within 24 hours to complete your setup.`;
   try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-        to:      business.email,
-        subject: `You're live on MissedCallio!`,
-        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+    const r = await sendEmail({
+      to:      business.email,
+      subject: `You're live on MissedCallio!`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00">Welcome to MissedCallio!</h2>
           <p>Hi ${business.name},</p>
           <p>Your AI receptionist is set up for <strong>${business.business_name}</strong>.</p>
@@ -1288,7 +1305,6 @@ async function sendWelcomeEmail(business, phoneNumber) {
           <br/><br/><p style="color:#888">— The MissedCallio Team</p>
           ${emailFooter(business.email)}
         </div>`
-      })
     });
     if (r.ok) console.log(`[email] welcome sent to ${business.email}`);
     else console.error('[email] error:', await r.text());
@@ -1454,24 +1470,19 @@ app.delete('/auth/session', authMiddleware, async (req, res) => {
 });
 
 async function sendOTPEmail(email, otp) {
-  if (!process.env.RESEND_API_KEY) {
+  if (!hasEmailProvider()) {
     console.log(`[auth] OTP for ${email}: ${otp}`);
     return;
   }
   try {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-        to:      email,
-        subject: `Your MissedCallio login code: ${otp}`,
-        html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+    await sendEmail({
+      to:      email,
+      subject: `Your MissedCallio login code: ${otp}`,
+      html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00">Your login code</h2>
           <p style="font-size:48px;font-weight:bold;letter-spacing:12px;text-align:center;margin:24px 0">${otp}</p>
           <p style="color:#666;text-align:center">This code expires in 10 minutes. Don't share it with anyone.</p>
         </div>`
-      })
     });
   } catch (err) {
     console.error('[auth] OTP email failed:', err.message);
@@ -1716,7 +1727,7 @@ app.post('/api/team', authMiddleware, async (req, res) => {
   if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required.' });
 
   const { data: existing } = await supabase.from('team_members')
-    .select('id').eq('email', email).maybeSingle();
+    .select('id').eq('email', email).eq('business_id', req.businessId).maybeSingle();
   if (existing) return res.status(400).json({ error: 'This email is already a team member.' });
 
   const { data: biz } = await supabase.from('businesses')
@@ -1728,16 +1739,12 @@ app.post('/api/team', authMiddleware, async (req, res) => {
   });
   if (error) return res.status(500).json({ error: error.message });
 
-  if (process.env.RESEND_API_KEY) {
+  if (hasEmailProvider()) {
     const dashUrl = process.env.SERVER_URL || 'https://missedcallio.online';
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-        to: email,
-        subject: `You've been added to ${biz?.business_name || 'a MissedCallio account'}`,
-        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+    await sendEmail({
+      to:      email,
+      subject: `You've been added to ${biz?.business_name || 'a MissedCallio account'}`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00">You're on the team!</h2>
           <p>Hi${name ? ' ' + name : ''},</p>
           <p>You've been added as a team member on the <strong>${biz?.business_name || ''}</strong> MissedCallio account.</p>
@@ -1749,7 +1756,6 @@ app.post('/api/team', authMiddleware, async (req, res) => {
           <br/><br/>
           <p style="color:#888">— The MissedCallio Team</p>
         </div>`
-      })
     });
   }
 
@@ -2048,7 +2054,7 @@ app.get('/health', (_req, res) => {
     db:       !!process.env.SUPABASE_URL,
     voice:    !!process.env.VAPI_API_KEY,
     sms:      !!process.env.TWILIO_ACCOUNT_SID,
-    email:    !!process.env.RESEND_API_KEY,
+    email:    !!hasEmailProvider(),
     billing:  !!process.env.PADDLE_API_KEY,
     uptime:   Math.round(process.uptime()),
   });
@@ -2100,7 +2106,7 @@ async function runReminderPoller() {
     }
 
     // Flip expired trials to 'expired' status
-    if (process.env.RESEND_API_KEY) {
+    if (hasEmailProvider()) {
       const { data: expiredTrials } = await supabase
         .from('businesses')
         .update({ status: 'expired' })
@@ -2111,14 +2117,10 @@ async function runReminderPoller() {
         const SERVER_URL = process.env.SERVER_URL || 'https://missedcallio.online';
         for (const biz of expiredTrials) {
           try {
-            await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-                to: biz.email,
-                subject: 'Your MissedCallio trial has ended',
-                html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+            await sendEmail({
+              to:      biz.email,
+              subject: 'Your MissedCallio trial has ended',
+              html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
                   <h2 style="color:#ff5c00">Your trial has ended</h2>
                   <p>Hi ${biz.name || biz.business_name},</p>
                   <p>Your 7-day free trial for <strong>${biz.business_name}</strong> has ended.</p>
@@ -2130,7 +2132,6 @@ async function runReminderPoller() {
                   </a>
                   <br/><br/><p style="color:#888">— The MissedCallio Team</p>
                 </div>`
-              })
             });
             console.log(`[trial-expired] email sent to ${biz.email}`);
           } catch (err) {
@@ -2159,7 +2160,7 @@ console.log('[startup] Reminder poller started');
 // =============================================================
 async function runTrialWarningPoller() {
   try {
-    if (!process.env.RESEND_API_KEY) return;
+    if (!hasEmailProvider()) return;
     const now        = new Date();
     const windowFrom = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
     const windowTo   = new Date(now.getTime() + 2.25 * 24 * 60 * 60 * 1000).toISOString();
@@ -2174,14 +2175,10 @@ async function runTrialWarningPoller() {
 
     for (const biz of businesses) {
       try {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-            to:      biz.email,
-            subject: `Your MissedCallio trial ends in 2 days`,
-            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        await sendEmail({
+          to:      biz.email,
+          subject: `Your MissedCallio trial ends in 2 days`,
+          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
               <h2 style="color:#ff5c00">Your free trial ends in 2 days</h2>
               <p>Hi ${biz.name},</p>
               <p>Your 7-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 2 days.</p>
@@ -2195,7 +2192,6 @@ async function runTrialWarningPoller() {
               <p style="color:#888">— The MissedCallio Team</p>
               ${emailFooter(biz.email)}
             </div>`
-          })
         });
         console.log(`[trial-warning] sent to ${biz.email}`);
       } catch (err) {
@@ -2214,7 +2210,7 @@ setInterval(runTrialWarningPoller, 60 * 60 * 1000);  // hourly
 // =============================================================
 async function runWeeklyDigestPoller() {
   try {
-    if (!process.env.RESEND_API_KEY) return;
+    if (!hasEmailProvider()) return;
     const now = new Date();
     // Only run on Mondays between 8:00 and 8:59 UTC
     if (now.getUTCDay() !== 1 || now.getUTCHours() !== 8) return;
@@ -2239,14 +2235,10 @@ async function runWeeklyDigestPoller() {
 
         if (!newLeads && !newCalls) continue; // skip quiet weeks
 
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-            to:      biz.email,
-            subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
-            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        await sendEmail({
+          to: biz.email,
+          subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
+          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
               <h2 style="color:#ff5c00">Your weekly summary</h2>
               <p>Hi ${biz.name}, here's what Aria did for <strong>${biz.business_name}</strong> this week:</p>
               <table style="width:100%;margin:24px 0;border-collapse:collapse">
@@ -2266,7 +2258,6 @@ async function runWeeklyDigestPoller() {
               <br/><br/><p style="color:#888">— The MissedCallio Team</p>
               ${emailFooter(biz.email)}
             </div>`
-          })
         });
         console.log(`[weekly-digest] sent to ${biz.email}`);
       } catch (err) {
@@ -2284,7 +2275,7 @@ setInterval(runWeeklyDigestPoller, 60 * 60 * 1000);  // hourly (runs only on Mon
 //  ONBOARDING DRIP POLLER — day 1, day 3, day 6 emails
 // =============================================================
 async function runDripPoller() {
-  if (!process.env.RESEND_API_KEY) return;
+  if (!hasEmailProvider()) return;
   const base = process.env.SERVER_URL || 'https://missedcallio.online';
   const now  = Date.now();
 
@@ -2355,16 +2346,8 @@ async function runDripPoller() {
         if (biz[drip.flag]) continue;
         if (age < drip.minMs || age > drip.maxMs) continue;
         try {
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-              to:      biz.email,
-              subject: drip.subject,
-              html:    drip.html(biz),
-            }),
-          });
+          const dr = await sendEmail({ to: biz.email, subject: drip.subject, html: drip.html(biz) });
+          if (!dr.ok) throw new Error(`Email API returned ${dr.status}`);
           await supabase.from('businesses').update({ [drip.flag]: true }).eq('id', biz.id);
           console.log(`[drip] ${drip.flag} sent to ${biz.email}`);
         } catch (err) {
@@ -2395,7 +2378,7 @@ app.listen(PORT, () => {
   console.log(`  Supabase ${process.env.SUPABASE_URL         ? '✓' : '✗ MISSING'}`);
   console.log(`  Vapi     ${process.env.VAPI_API_KEY         ? '✓' : '- not set'}`);
   console.log(`  Twilio   ${process.env.TWILIO_ACCOUNT_SID   ? '✓' : '- not set'}`);
-  console.log(`  Email    ${process.env.RESEND_API_KEY       ? '✓' : '- not set'}`);
+  console.log(`  Email    ${hasEmailProvider()       ? '✓' : '- not set'}`);
   console.log(`  Paddle   ${process.env.PADDLE_API_KEY       ? '✓' : '- not set'}`);
   console.log(`  Webhook  ${process.env.VAPI_WEBHOOK_SECRET  ? '✓' : '- not set (unsecured)'}\n`);
 });
