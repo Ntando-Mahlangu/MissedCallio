@@ -893,8 +893,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
               <br/><br/><p style="color:#888">— The MissedCallio Team</p>
               ${emailFooter(biz.email)}
             </div>`
-          })
-        }).catch(() => {});
+          }).catch(() => {});
         console.log(`[milestone] first-lead email sent to ${biz.email}`);
       }
     }
