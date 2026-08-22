@@ -191,13 +191,14 @@ app.post('/signup', signupLimiter, async (req, res) => {
     // Upsert business in pending state (allows re-sending PIN if they refresh)
     let business;
     if (existing) {
-      const { data } = await supabase.from('businesses')
+      const { data, error: updErr } = await supabase.from('businesses')
         .update({ name: `${firstName} ${lastName}`, business_name: businessName,
           mobile_number: normalizePhone(mobileNumber), industry: industry || 'General business',
           biz_hours: bizHours || 'Monday to Friday 8am–6pm', biz_address: bizAddress || '',
           biz_pricing: bizPricing || 'Please call us for a quote', plan: plan || 'growth',
           departments: departments || null, team_size: teamSize || null, office_type: officeType || 'solo',
         }).eq('id', existing.id).select().single();
+      if (updErr) return res.status(500).json({ error: 'Failed to update account. Please try again.' });
       business = data;
     } else {
       const { data, error: bizErr } = await supabase.from('businesses').insert({
@@ -537,7 +538,7 @@ function buildAssistantConfig(business) {
     firstMessage:    `Hi there, thanks for calling ${business_name}! My name's ${receptionist}. Could I get your name please?`,
     endCallMessage:  "Thanks so much for calling. Someone from the team will be in touch soon. Take care!",
     endCallPhrases:  ['goodbye','bye','bye bye','thanks bye','thank you bye',"that's all",'have a good day','talk later','cheers'],
-    serverUrl:       `${process.env.SERVER_URL}/vapi/webhook/${id}`,
+    serverUrl:       `${process.env.SERVER_URL || 'https://missedcallio.online'}/vapi/webhook/${id}`,
     serverUrlSecret: process.env.VAPI_WEBHOOK_SECRET || undefined,
     tools
   };
@@ -1557,7 +1558,8 @@ app.post('/api/notifications/read', authMiddleware, async (req, res) => {
   const { ids } = req.body; // array of IDs, or omit to mark all read
   let query = supabase.from('notifications').update({ read: true }).eq('business_id', req.businessId);
   if (Array.isArray(ids) && ids.length > 0) query = query.in('id', ids);
-  await query;
+  const { error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });
 

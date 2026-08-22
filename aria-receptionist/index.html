@@ -1469,6 +1469,8 @@ async function handleSignup(e) {
     }
     successDetail.appendChild(btnRow);
     document.getElementById('success-msg').style.display = 'block';
+    btn.textContent = 'Start my free trial →';
+    btn.disabled = false;
 
   } catch (err) {
     errorBox.textContent = 'Network error — please check your connection and try again.';
