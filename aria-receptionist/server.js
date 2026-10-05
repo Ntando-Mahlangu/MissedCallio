@@ -49,10 +49,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://embed.tawk.to'],
+      scriptSrc:   ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       styleSrc:    ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
       fontSrc:     ["'self'", 'https://fonts.gstatic.com'],
-      connectSrc:  ["'self'", 'https://va.tawk.to'],
+      connectSrc:  ["'self'"],
       frameSrc:    ["'none'"],
       objectSrc:   ["'none'"],
     }
@@ -127,6 +127,10 @@ function normalizePhone(raw) {
   if (/^\+\d{7,15}$/.test(s)) return s;
   if (s.startsWith('+')) return s;
   if (s.startsWith('00')) return '+' + s.slice(2);
+  // SA numbers: 10 digits starting with 0 (e.g. 0821234567 → +27821234567)
+  if (/^0\d{9}$/.test(s)) return '+27' + s.slice(1);
+  // Bare 9-digit SA number without leading 0 (e.g. 821234567 → +27821234567)
+  if (/^[6-8]\d{8}$/.test(s)) return '+27' + s;
   // Bare 10-digit US number starting with area code (2-9)
   if (/^\d{10}$/.test(s) && /^[2-9]/.test(s)) return '+1' + s;
   return s;
@@ -191,14 +195,13 @@ app.post('/signup', signupLimiter, async (req, res) => {
     // Upsert business in pending state (allows re-sending PIN if they refresh)
     let business;
     if (existing) {
-      const { data, error: updErr } = await supabase.from('businesses')
+      const { data } = await supabase.from('businesses')
         .update({ name: `${firstName} ${lastName}`, business_name: businessName,
           mobile_number: normalizePhone(mobileNumber), industry: industry || 'General business',
           biz_hours: bizHours || 'Monday to Friday 8am–6pm', biz_address: bizAddress || '',
           biz_pricing: bizPricing || 'Please call us for a quote', plan: plan || 'growth',
           departments: departments || null, team_size: teamSize || null, office_type: officeType || 'solo',
         }).eq('id', existing.id).select().single();
-      if (updErr) return res.status(500).json({ error: 'Failed to update account. Please try again.' });
       business = data;
     } else {
       const { data, error: bizErr } = await supabase.from('businesses').insert({
@@ -357,8 +360,6 @@ app.post('/api/resend-pin', signupLimiter, async (req, res) => {
     const pin = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-    // Invalidate any prior OTPs for this email before issuing a new one
-    await supabase.from('auth_otps').update({ used: true }).eq('email', email.toLowerCase().trim()).eq('used', false);
     await supabase.from('auth_otps').insert({ email: email.toLowerCase().trim(), otp: pin, expires_at: expires });
 
     const firstName = business.name?.split(' ')[0] || 'there';
@@ -371,55 +372,19 @@ app.post('/api/resend-pin', signupLimiter, async (req, res) => {
   }
 });
 
-// =============================================================
-//  UNIFIED EMAIL HELPER — supports Brevo (primary) or Resend
-//  Set BREVO_API_KEY  → uses Brevo  (api.brevo.com)
-//  Set RESEND_API_KEY → uses Resend (api.resend.com)
-// =============================================================
-async function sendEmail({ to, subject, html }) {
-  const from = `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`;
-
-  if (process.env.BREVO_API_KEY) {
-    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method:  'POST',
-      headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sender:  { name: 'MissedCallio', email: `noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}` },
-        to:      [{ email: to }],
-        subject,
-        htmlContent: html,
-      }),
-    });
-    return r;
-  }
-
-  if (hasEmailProvider()) {
-    const r = await fetch('https://api.resend.com/emails', {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, html }),
-    });
-    return r;
-  }
-
-  // No provider configured — log and return a fake ok response
-  console.log(`[email] no provider set — would send "${subject}" to ${to}`);
-  return { ok: true, status: 200 };
-}
-
-function hasEmailProvider() {
-  return !!(process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
-}
-
 async function sendVerificationPin(email, firstName, pin) {
-  if (!hasEmailProvider()) {
+  if (!process.env.RESEND_API_KEY) {
     console.log(`[signup] verification PIN for ${email}: ${pin}`);
     return;
   }
   try {
-    await sendEmail({
-      to:      email,
-      subject: `Your MissedCallio verification code: ${pin}`,
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
+        to:      email,
+        subject: `Your MissedCallio verification code: ${pin}`,
         html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00;margin-bottom:8px">Verify your email</h2>
           <p style="color:#444;margin-bottom:24px">Hi ${firstName}, enter this code to activate your MissedCallio account:</p>
@@ -428,6 +393,7 @@ async function sendVerificationPin(email, firstName, pin) {
           <hr style="border:none;border-top:1px solid #eee;margin:28px 0"/>
           <p style="color:#aaa;font-size:12px;text-align:center">If you didn't sign up for MissedCallio, you can safely ignore this email.</p>
         </div>`
+      })
     });
   } catch (err) {
     console.error('[signup] PIN email failed:', err.message);
@@ -538,7 +504,7 @@ function buildAssistantConfig(business) {
     firstMessage:    `Hi there, thanks for calling ${business_name}! My name's ${receptionist}. Could I get your name please?`,
     endCallMessage:  "Thanks so much for calling. Someone from the team will be in touch soon. Take care!",
     endCallPhrases:  ['goodbye','bye','bye bye','thanks bye','thank you bye',"that's all",'have a good day','talk later','cheers'],
-    serverUrl:       `${process.env.SERVER_URL || 'https://missedcallio.online'}/vapi/webhook/${id}`,
+    serverUrl:       `${process.env.SERVER_URL}/vapi/webhook/${id}`,
     serverUrlSecret: process.env.VAPI_WEBHOOK_SECRET || undefined,
     tools
   };
@@ -635,8 +601,8 @@ async function assignPhoneNumber(assistantId, ownerPhone) {
   }
 }
 
-if (process.env.VAPI_API_KEY && !process.env.VAPI_WEBHOOK_SECRET) {
-  throw new Error('VAPI_WEBHOOK_SECRET is required when VAPI_API_KEY is set — add it in Railway Variables.');
+if (!process.env.VAPI_WEBHOOK_SECRET) {
+  throw new Error('VAPI_WEBHOOK_SECRET is required — set it in Railway Variables.');
 }
 
 // Plan call limits
@@ -657,14 +623,8 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
       .createHmac('sha256', process.env.VAPI_WEBHOOK_SECRET)
       .update(req.rawBody)
       .digest('hex');
-    try {
-      const sigBuf = Buffer.from(sig || '', 'hex');
-      const expBuf = Buffer.from(expected, 'hex');
-      if (!sig || sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-        console.warn('[webhook] rejected — bad HMAC signature');
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-    } catch {
+    if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      console.warn('[webhook] rejected — bad HMAC signature');
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
@@ -779,13 +739,17 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
         const { count: apptCount } = await supabase.from('appointments')
           .select('id', { count: 'exact', head: true }).eq('call_id', callId);
 
-        if ((!leadCount && !apptCount) && biz && hasEmailProvider()) {
+        if ((!leadCount && !apptCount) && biz && process.env.RESEND_API_KEY) {
           const sendTo = biz.voicemail_email || biz.email;
           const callerNum = call?.customer?.number || 'Unknown';
-          await sendEmail({
-            to:      sendTo,
-            subject: `Voicemail from ${callerNum} — ${biz.business_name}`,
-            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+              to: sendTo,
+              subject: `Voicemail from ${callerNum} — ${biz.business_name}`,
+              html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
                 <h2 style="color:#ff5c00">You have a voicemail</h2>
                 <p>A caller hung up before leaving details. Duration: ${duration || 0}s.</p>
                 <p><strong>Caller:</strong> ${callerNum}</p>
@@ -796,6 +760,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
                 <br/><br/>
                 <p style="color:#888">— MissedCallio</p>
               </div>`
+            })
           });
           console.log(`[voicemail] emailed recording for call ${callId} to ${sendTo}`);
         }
@@ -820,7 +785,7 @@ function isExpired(biz) {
     const graceDays = 5;
     return (Date.now() - new Date(biz.past_due_at).getTime()) > graceDays * 24 * 60 * 60 * 1000;
   }
-  return biz.status === 'cancelled' || biz.status === 'expired';
+  return biz.status === 'cancelled';
 }
 
 // =============================================================
@@ -830,7 +795,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (!name || !phone) return { success: false, error: 'Missing name or phone' };
 
   const { data: business } = await supabase
-    .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments, hubspot_api_key').eq('id', businessId).single();
+    .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments').eq('id', businessId).single();
 
   const { data: teamMembers } = await supabase
     .from('team_members')
@@ -866,16 +831,20 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   }
 
   // First-lead milestone email
-  if (!error && hasEmailProvider()) {
+  if (!error && process.env.RESEND_API_KEY) {
     const { count: totalLeads } = await supabase.from('leads')
       .select('id', { count: 'exact', head: true }).eq('business_id', businessId);
     if (totalLeads === 1) {
       const { data: biz } = await supabase.from('businesses')
         .select('email, name, business_name').eq('id', businessId).single();
       if (biz) {
-        sendEmail({
+        fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
             to:      biz.email,
-            subject: `Aria just captured your first lead — ${lead.name}`,
+            subject: `🎉 Aria just captured your first lead — ${lead.name}`,
             html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
               <h2 style="color:#ff5c00">Your first lead is in!</h2>
               <p>Hi ${biz.name},</p>
@@ -894,7 +863,8 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
               <br/><br/><p style="color:#888">— The MissedCallio Team</p>
               ${emailFooter(biz.email)}
             </div>`
-          }).catch(() => {});
+          })
+        }).catch(() => {});
         console.log(`[milestone] first-lead email sent to ${biz.email}`);
       }
     }
@@ -1217,11 +1187,16 @@ async function routeToStaff(businessId, callId, call, { staff_name }) {
     await sendSMS(normalizePhone(match.phone), `MissedCallio: ${callerNum} is on the phone asking for you. Call them back asap.`);
   }
 
-  if (match.email && !match.phone && hasEmailProvider()) {
-    await sendEmail({
-      to:      match.email,
-      subject: `Someone is asking for you`,
-      html:    `<p>A caller is on the line asking for you (${match.name}). Caller number: ${call?.customer?.number || 'unknown'}.</p>`
+  if (match.email && !match.phone && process.env.RESEND_API_KEY) {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        to: match.email,
+        subject: `Someone is asking for you`,
+        html: `<p>A caller is on the line asking for you (${match.name}). Caller number: ${call?.customer?.number || 'unknown'}.</p>`
+      })
     });
   }
 
@@ -1280,17 +1255,21 @@ app.get('/unsubscribe', async (req, res) => {
 //  WELCOME EMAIL
 // =============================================================
 async function sendWelcomeEmail(business, phoneNumber) {
-  if (!hasEmailProvider()) return;
+  if (!process.env.RESEND_API_KEY) return;
   const instructions = phoneNumber
     ? `Your MissedCallio number is: <strong>${phoneNumber}</strong><br/><br/>
        <strong>Activate in 30 seconds:</strong><br/>
        Go to your phone settings → Call Forwarding → Forward to <strong>${phoneNumber}</strong>`
     : `Our team will contact you within 24 hours to complete your setup.`;
   try {
-    const r = await sendEmail({
-      to:      business.email,
-      subject: `You're live on MissedCallio!`,
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        to:      business.email,
+        subject: `You're live on MissedCallio!`,
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00">Welcome to MissedCallio!</h2>
           <p>Hi ${business.name},</p>
           <p>Your AI receptionist is set up for <strong>${business.business_name}</strong>.</p>
@@ -1305,6 +1284,7 @@ async function sendWelcomeEmail(business, phoneNumber) {
           <br/><br/><p style="color:#888">— The MissedCallio Team</p>
           ${emailFooter(business.email)}
         </div>`
+      })
     });
     if (r.ok) console.log(`[email] welcome sent to ${business.email}`);
     else console.error('[email] error:', await r.text());
@@ -1470,19 +1450,24 @@ app.delete('/auth/session', authMiddleware, async (req, res) => {
 });
 
 async function sendOTPEmail(email, otp) {
-  if (!hasEmailProvider()) {
+  if (!process.env.RESEND_API_KEY) {
     console.log(`[auth] OTP for ${email}: ${otp}`);
     return;
   }
   try {
-    await sendEmail({
-      to:      email,
-      subject: `Your MissedCallio login code: ${otp}`,
-      html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        to:      email,
+        subject: `Your MissedCallio login code: ${otp}`,
+        html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00">Your login code</h2>
           <p style="font-size:48px;font-weight:bold;letter-spacing:12px;text-align:center;margin:24px 0">${otp}</p>
           <p style="color:#666;text-align:center">This code expires in 10 minutes. Don't share it with anyone.</p>
         </div>`
+      })
     });
   } catch (err) {
     console.error('[auth] OTP email failed:', err.message);
@@ -1522,13 +1507,7 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
         await fetch(`https://api.vapi.ai/assistant/${biz.vapi_assistant_id}`, {
           method:  'PATCH',
           headers: { Authorization: `Bearer ${process.env.VAPI_API_KEY}`, 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ model: {
-            provider:     'anthropic',
-            model:        'claude-sonnet-4-5',
-            systemPrompt: buildSystemPrompt(biz),
-            temperature:  0.7,
-            maxTokens:    250,
-          } }),
+          body:    JSON.stringify({ model: { systemPrompt: buildSystemPrompt(biz) } }),
         });
         console.log(`[vapi] assistant prompt updated for ${businessId}`);
       }
@@ -1558,8 +1537,7 @@ app.post('/api/notifications/read', authMiddleware, async (req, res) => {
   const { ids } = req.body; // array of IDs, or omit to mark all read
   let query = supabase.from('notifications').update({ read: true }).eq('business_id', req.businessId);
   if (Array.isArray(ids) && ids.length > 0) query = query.in('id', ids);
-  const { error } = await query;
-  if (error) return res.status(500).json({ error: error.message });
+  await query;
   res.json({ success: true });
 });
 
@@ -1728,7 +1706,7 @@ app.post('/api/team', authMiddleware, async (req, res) => {
   if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required.' });
 
   const { data: existing } = await supabase.from('team_members')
-    .select('id').eq('email', email).eq('business_id', req.businessId).maybeSingle();
+    .select('id').eq('email', email).maybeSingle();
   if (existing) return res.status(400).json({ error: 'This email is already a team member.' });
 
   const { data: biz } = await supabase.from('businesses')
@@ -1740,12 +1718,16 @@ app.post('/api/team', authMiddleware, async (req, res) => {
   });
   if (error) return res.status(500).json({ error: error.message });
 
-  if (hasEmailProvider()) {
+  if (process.env.RESEND_API_KEY) {
     const dashUrl = process.env.SERVER_URL || 'https://missedcallio.online';
-    await sendEmail({
-      to:      email,
-      subject: `You've been added to ${biz?.business_name || 'a MissedCallio account'}`,
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        to: email,
+        subject: `You've been added to ${biz?.business_name || 'a MissedCallio account'}`,
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
           <h2 style="color:#ff5c00">You're on the team!</h2>
           <p>Hi${name ? ' ' + name : ''},</p>
           <p>You've been added as a team member on the <strong>${biz?.business_name || ''}</strong> MissedCallio account.</p>
@@ -1757,6 +1739,7 @@ app.post('/api/team', authMiddleware, async (req, res) => {
           <br/><br/>
           <p style="color:#888">— The MissedCallio Team</p>
         </div>`
+      })
     });
   }
 
@@ -2055,7 +2038,7 @@ app.get('/health', (_req, res) => {
     db:       !!process.env.SUPABASE_URL,
     voice:    !!process.env.VAPI_API_KEY,
     sms:      !!process.env.TWILIO_ACCOUNT_SID,
-    email:    !!hasEmailProvider(),
+    email:    !!process.env.RESEND_API_KEY,
     billing:  !!process.env.PADDLE_API_KEY,
     uptime:   Math.round(process.uptime()),
   });
@@ -2101,13 +2084,13 @@ async function runReminderPoller() {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const { count } = await supabase.from('businesses')
         .update({ calls_this_month: 0, calls_reset_at: monthStart })
-        .or(`calls_reset_at.is.null,calls_reset_at.lt.${monthStart}`)
+        .lt('calls_reset_at', monthStart)
         .select('id', { count: 'exact', head: true });
       if (count > 0) console.log(`[poller] monthly call counter reset for ${count} businesses`);
     }
 
     // Flip expired trials to 'expired' status
-    if (hasEmailProvider()) {
+    if (process.env.RESEND_API_KEY) {
       const { data: expiredTrials } = await supabase
         .from('businesses')
         .update({ status: 'expired' })
@@ -2118,10 +2101,14 @@ async function runReminderPoller() {
         const SERVER_URL = process.env.SERVER_URL || 'https://missedcallio.online';
         for (const biz of expiredTrials) {
           try {
-            await sendEmail({
-              to:      biz.email,
-              subject: 'Your MissedCallio trial has ended',
-              html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+            await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+                to: biz.email,
+                subject: 'Your MissedCallio trial has ended',
+                html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
                   <h2 style="color:#ff5c00">Your trial has ended</h2>
                   <p>Hi ${biz.name || biz.business_name},</p>
                   <p>Your 7-day free trial for <strong>${biz.business_name}</strong> has ended.</p>
@@ -2133,6 +2120,7 @@ async function runReminderPoller() {
                   </a>
                   <br/><br/><p style="color:#888">— The MissedCallio Team</p>
                 </div>`
+              })
             });
             console.log(`[trial-expired] email sent to ${biz.email}`);
           } catch (err) {
@@ -2161,7 +2149,7 @@ console.log('[startup] Reminder poller started');
 // =============================================================
 async function runTrialWarningPoller() {
   try {
-    if (!hasEmailProvider()) return;
+    if (!process.env.RESEND_API_KEY) return;
     const now        = new Date();
     const windowFrom = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
     const windowTo   = new Date(now.getTime() + 2.25 * 24 * 60 * 60 * 1000).toISOString();
@@ -2176,10 +2164,14 @@ async function runTrialWarningPoller() {
 
     for (const biz of businesses) {
       try {
-        await sendEmail({
-          to:      biz.email,
-          subject: `Your MissedCallio trial ends in 2 days`,
-          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            to:      biz.email,
+            subject: `Your MissedCallio trial ends in 2 days`,
+            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
               <h2 style="color:#ff5c00">Your free trial ends in 2 days</h2>
               <p>Hi ${biz.name},</p>
               <p>Your 7-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 2 days.</p>
@@ -2193,6 +2185,7 @@ async function runTrialWarningPoller() {
               <p style="color:#888">— The MissedCallio Team</p>
               ${emailFooter(biz.email)}
             </div>`
+          })
         });
         console.log(`[trial-warning] sent to ${biz.email}`);
       } catch (err) {
@@ -2211,7 +2204,7 @@ setInterval(runTrialWarningPoller, 60 * 60 * 1000);  // hourly
 // =============================================================
 async function runWeeklyDigestPoller() {
   try {
-    if (!hasEmailProvider()) return;
+    if (!process.env.RESEND_API_KEY) return;
     const now = new Date();
     // Only run on Mondays between 8:00 and 8:59 UTC
     if (now.getUTCDay() !== 1 || now.getUTCHours() !== 8) return;
@@ -2236,10 +2229,14 @@ async function runWeeklyDigestPoller() {
 
         if (!newLeads && !newCalls) continue; // skip quiet weeks
 
-        await sendEmail({
-          to: biz.email,
-          subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
-          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            to:      biz.email,
+            subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
+            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
               <h2 style="color:#ff5c00">Your weekly summary</h2>
               <p>Hi ${biz.name}, here's what Aria did for <strong>${biz.business_name}</strong> this week:</p>
               <table style="width:100%;margin:24px 0;border-collapse:collapse">
@@ -2259,6 +2256,7 @@ async function runWeeklyDigestPoller() {
               <br/><br/><p style="color:#888">— The MissedCallio Team</p>
               ${emailFooter(biz.email)}
             </div>`
+          })
         });
         console.log(`[weekly-digest] sent to ${biz.email}`);
       } catch (err) {
@@ -2276,7 +2274,7 @@ setInterval(runWeeklyDigestPoller, 60 * 60 * 1000);  // hourly (runs only on Mon
 //  ONBOARDING DRIP POLLER — day 1, day 3, day 6 emails
 // =============================================================
 async function runDripPoller() {
-  if (!hasEmailProvider()) return;
+  if (!process.env.RESEND_API_KEY) return;
   const base = process.env.SERVER_URL || 'https://missedcallio.online';
   const now  = Date.now();
 
@@ -2347,8 +2345,16 @@ async function runDripPoller() {
         if (biz[drip.flag]) continue;
         if (age < drip.minMs || age > drip.maxMs) continue;
         try {
-          const dr = await sendEmail({ to: biz.email, subject: drip.subject, html: drip.html(biz) });
-          if (!dr.ok) throw new Error(`Email API returned ${dr.status}`);
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+              to:      biz.email,
+              subject: drip.subject,
+              html:    drip.html(biz),
+            }),
+          });
           await supabase.from('businesses').update({ [drip.flag]: true }).eq('id', biz.id);
           console.log(`[drip] ${drip.flag} sent to ${biz.email}`);
         } catch (err) {
@@ -2379,7 +2385,7 @@ app.listen(PORT, () => {
   console.log(`  Supabase ${process.env.SUPABASE_URL         ? '✓' : '✗ MISSING'}`);
   console.log(`  Vapi     ${process.env.VAPI_API_KEY         ? '✓' : '- not set'}`);
   console.log(`  Twilio   ${process.env.TWILIO_ACCOUNT_SID   ? '✓' : '- not set'}`);
-  console.log(`  Email    ${hasEmailProvider()       ? '✓' : '- not set'}`);
+  console.log(`  Email    ${process.env.RESEND_API_KEY       ? '✓' : '- not set'}`);
   console.log(`  Paddle   ${process.env.PADDLE_API_KEY       ? '✓' : '- not set'}`);
   console.log(`  Webhook  ${process.env.VAPI_WEBHOOK_SECRET  ? '✓' : '- not set (unsecured)'}\n`);
 });
