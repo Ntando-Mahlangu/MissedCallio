@@ -127,6 +127,9 @@ function normalizePhone(raw) {
   if (/^\+\d{7,15}$/.test(s)) return s;
   if (s.startsWith('+')) return s;
   if (s.startsWith('00')) return '+' + s.slice(2);
+  // UK numbers: 11 digits starting with 07 or 01/02/03 (e.g. 07911123456 → +447911123456)
+  if (/^07\d{9}$/.test(s)) return '+44' + s.slice(1);
+  if (/^0[123]\d{9}$/.test(s)) return '+44' + s.slice(1);
   // SA numbers: 10 digits starting with 0 (e.g. 0821234567 → +27821234567)
   if (/^0\d{9}$/.test(s)) return '+27' + s.slice(1);
   // Bare 9-digit SA number without leading 0 (e.g. 821234567 → +27821234567)
