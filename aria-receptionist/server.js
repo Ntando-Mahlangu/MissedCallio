@@ -127,6 +127,10 @@ function normalizePhone(raw) {
   if (/^\+\d{7,15}$/.test(s)) return s;
   if (s.startsWith('+')) return s;
   if (s.startsWith('00')) return '+' + s.slice(2);
+  // SA numbers: 10 digits starting with 0 (e.g. 0821234567 → +27821234567)
+  if (/^0\d{9}$/.test(s)) return '+27' + s.slice(1);
+  // Bare 9-digit SA number without leading 0 (e.g. 821234567 → +27821234567)
+  if (/^[6-8]\d{8}$/.test(s)) return '+27' + s;
   // Bare 10-digit US number starting with area code (2-9)
   if (/^\d{10}$/.test(s) && /^[2-9]/.test(s)) return '+1' + s;
   return s;
