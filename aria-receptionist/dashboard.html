@@ -300,6 +300,12 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
   table{font-size:13px}
   thead th,tbody td{padding:10px 12px}
   .login-card{padding:36px 24px;margin:16px}
+  /* Make calls table (7 cols) scrollable on mobile */
+  #tab-calls .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #tab-calls table{min-width:640px}
+  /* Hide less-critical columns on mobile */
+  #tab-calls thead th:nth-child(5),
+  #tab-calls tbody td:nth-child(5){display:none}
 }
 </style>
 </head>
@@ -680,6 +686,23 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
           </form>
         </div>
 
+        <!-- CHANGE EMAIL -->
+        <div class="info-card" style="margin-top:20px">
+          <div class="info-card-title" style="margin-bottom:4px">Change Login Email</div>
+          <p style="font-size:13px;color:var(--gray);margin-bottom:16px">A verification code will be sent to your new address.</p>
+          <div id="change-email-step1" style="display:flex;flex-direction:column;gap:10px;max-width:420px">
+            <input id="ce-new-email" class="login-input" type="email" placeholder="new@email.com"/>
+            <button class="login-btn" style="max-width:180px" onclick="requestEmailChange()">Send verification code</button>
+            <div id="ce-msg1" style="font-size:13px;display:none"></div>
+          </div>
+          <div id="change-email-step2" style="display:none;flex-direction:column;gap:10px;max-width:420px">
+            <p style="font-size:13px;color:var(--gray);margin:0">Enter the 6-digit code sent to <strong id="ce-display-email"></strong></p>
+            <input id="ce-otp" class="login-input" type="text" placeholder="000000" maxlength="6" inputmode="numeric"/>
+            <button class="login-btn" style="max-width:180px" onclick="confirmEmailChange()">Confirm new email</button>
+            <div id="ce-msg2" style="font-size:13px;display:none"></div>
+          </div>
+        </div>
+
         <!-- DANGER ZONE -->
         <div class="info-card" style="margin-top:20px;border:1px solid #fee2e2">
           <div class="info-card-title" style="color:#991b1b;margin-bottom:12px">Danger Zone</div>
@@ -693,7 +716,7 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
   <footer style="text-align:center;padding:24px 16px;font-size:12px;color:#aaa">
     <a href="/terms" style="color:#aaa;text-decoration:none" target="_blank">Terms</a> ·
     <a href="/privacy" style="color:#aaa;text-decoration:none" target="_blank">Privacy</a> ·
-    <a href="mailto:support@missedcallio.io" style="color:#aaa;text-decoration:none">Support</a>
+    <a href="mailto:support@missedcallio.online" style="color:#aaa;text-decoration:none">Support</a>
   </footer>
 </div>
 
@@ -1597,6 +1620,48 @@ async function openBillingPortal() {
   } catch { alert('Network error. Please try again.'); }
   btn.textContent = DATA?.business?.status === 'trial' ? 'Add payment method →' : 'Manage billing →';
   btn.disabled = false;
+}
+
+// ── CHANGE EMAIL ──
+async function requestEmailChange() {
+  const emailEl = document.getElementById('ce-new-email');
+  const msg = document.getElementById('ce-msg1');
+  const email = emailEl.value.trim();
+  if (!email) { msg.textContent = 'Please enter an email address.'; msg.style.cssText = 'display:block;color:#e53e3e'; return; }
+  msg.textContent = 'Sending…'; msg.style.cssText = 'display:block;color:var(--gray)';
+  const r = await fetch('/api/change-email/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('mc_token')}` },
+    body: JSON.stringify({ newEmail: email })
+  });
+  const d = await r.json();
+  if (d.success) {
+    document.getElementById('ce-display-email').textContent = email;
+    document.getElementById('change-email-step1').style.display = 'none';
+    document.getElementById('change-email-step2').style.display = 'flex';
+  } else {
+    msg.textContent = d.error || 'Failed to send code.'; msg.style.cssText = 'display:block;color:#e53e3e';
+  }
+}
+
+async function confirmEmailChange() {
+  const otp = document.getElementById('ce-otp').value.trim();
+  const email = document.getElementById('ce-display-email').textContent;
+  const msg = document.getElementById('ce-msg2');
+  if (!otp) { msg.textContent = 'Please enter the code.'; msg.style.cssText = 'display:block;color:#e53e3e'; return; }
+  msg.textContent = 'Verifying…'; msg.style.cssText = 'display:block;color:var(--gray)';
+  const r = await fetch('/api/change-email/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('mc_token')}` },
+    body: JSON.stringify({ newEmail: email, otp })
+  });
+  const d = await r.json();
+  if (d.success) {
+    msg.textContent = 'Email updated! You will need to log in again.'; msg.style.cssText = 'display:block;color:#00c853';
+    setTimeout(() => { localStorage.removeItem('mc_token'); location.reload(); }, 2500);
+  } else {
+    msg.textContent = d.error || 'Incorrect code.'; msg.style.cssText = 'display:block;color:#e53e3e';
+  }
 }
 
 // ── DELETE ACCOUNT ──

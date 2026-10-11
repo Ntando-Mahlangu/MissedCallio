@@ -1521,6 +1521,56 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
 });
 
 // =============================================================
+//  CHANGE EMAIL — sends OTP to new address, then confirms
+// =============================================================
+app.post('/api/change-email/request', authMiddleware, async (req, res) => {
+  const { newEmail } = req.body;
+  if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+    return res.status(400).json({ error: 'Please enter a valid email address.' });
+  }
+  const norm = newEmail.toLowerCase().trim();
+  // Check not already taken
+  const { data: existing } = await supabase.from('businesses').select('id').eq('email', norm).single();
+  if (existing) return res.status(400).json({ error: 'That email is already in use.' });
+
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  await supabase.from('auth_otps').insert({ email: norm, otp, expires_at: expiresAt });
+
+  if (hasEmailProvider()) {
+    await sendEmail({
+      to: norm,
+      subject: 'Confirm your new MissedCallio email address',
+      html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+        <h2 style="color:#ff5c00">Confirm your new email</h2>
+        <p>Use this code to confirm <strong>${norm}</strong> as your new login email. It expires in 15 minutes.</p>
+        <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#ff5c00;margin:24px 0">${otp}</div>
+        <p style="color:#888;font-size:13px">If you didn't request this, ignore this email.</p>
+      </div>`
+    }).catch(() => {});
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/change-email/confirm', authMiddleware, async (req, res) => {
+  const { newEmail, otp } = req.body;
+  if (!newEmail || !otp) return res.status(400).json({ error: 'Missing fields.' });
+  const norm = newEmail.toLowerCase().trim();
+
+  const { data: record } = await supabase.from('auth_otps')
+    .select('*').eq('email', norm).order('created_at', { ascending: false }).limit(1).single();
+
+  if (!record || record.otp !== otp || new Date(record.expires_at) < new Date()) {
+    return res.status(400).json({ error: 'Invalid or expired code.' });
+  }
+
+  await supabase.from('auth_otps').delete().eq('id', record.id);
+  const { error } = await supabase.from('businesses').update({ email: norm }).eq('id', req.businessId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+// =============================================================
 //  IN-APP NOTIFICATIONS
 // =============================================================
 app.get('/api/notifications', authMiddleware, async (req, res) => {
@@ -2055,6 +2105,9 @@ app.get('/sitemap.xml', (_req, res) => {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${base}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
   <url><loc>${base}/call-forwarding</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>${base}/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
+  <url><loc>${base}/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
+  <url><loc>${base}/refund</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
 </urlset>`
   );
 });
@@ -2252,43 +2305,57 @@ async function runWeeklyDigestPoller() {
 
     for (const biz of businesses) {
       try {
-        const [{ count: newLeads }, { count: newCalls }] = await Promise.all([
+        const [{ count: newLeads }, { count: newCalls }, { data: recentLeads }, { count: newAppts }] = await Promise.all([
           supabase.from('leads').select('id', { count: 'exact', head: true })
             .eq('business_id', biz.id).gte('received_at', weekAgo),
           supabase.from('calls').select('id', { count: 'exact', head: true })
             .eq('business_id', biz.id).gte('started_at', weekAgo),
+          supabase.from('leads').select('name, phone, issue, received_at')
+            .eq('business_id', biz.id).gte('received_at', weekAgo).order('received_at', { ascending: false }).limit(5),
+          supabase.from('appointments').select('id', { count: 'exact', head: true })
+            .eq('business_id', biz.id).gte('created_at', weekAgo),
         ]);
 
         if (!newLeads && !newCalls) continue; // skip quiet weeks
 
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
-            to:      biz.email,
-            subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
-            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
-              <h2 style="color:#ff5c00">Your weekly summary</h2>
-              <p>Hi ${biz.name}, here's what Aria did for <strong>${biz.business_name}</strong> this week:</p>
-              <table style="width:100%;margin:24px 0;border-collapse:collapse">
-                <tr style="background:#f7f6f3">
-                  <td style="padding:14px 18px;font-size:15px">📞 Calls answered</td>
-                  <td style="padding:14px 18px;font-size:22px;font-weight:700;text-align:right">${newCalls || 0}</td>
-                </tr>
-                <tr>
-                  <td style="padding:14px 18px;font-size:15px">👤 Leads captured</td>
-                  <td style="padding:14px 18px;font-size:22px;font-weight:700;text-align:right;color:#ff5c00">${newLeads || 0}</td>
-                </tr>
-              </table>
-              <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
-                 style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
-                View full dashboard →
-              </a>
-              <br/><br/><p style="color:#888">— The MissedCallio Team</p>
-              ${emailFooter(biz.email)}
-            </div>`
-          })
+        const leadRows = (recentLeads || []).map(l =>
+          `<tr><td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;font-size:14px">${l.name || 'Unknown'}</td>` +
+          `<td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;font-size:14px;color:#666">${l.phone || '—'}</td>` +
+          `<td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888">${(l.issue||'').slice(0,60)}</td></tr>`
+        ).join('');
+
+        const moreLeads = (newLeads || 0) > 5 ? `<p style="color:#888;font-size:13px;margin:6px 0 0">…and ${newLeads - 5} more. <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard" style="color:#ff5c00">View all →</a></p>` : '';
+
+        await sendEmail({
+          to: biz.email,
+          subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
+          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+            <h2 style="color:#ff5c00">Your weekly summary</h2>
+            <p>Hi ${biz.name}, here's what Aria did for <strong>${biz.business_name}</strong> this week:</p>
+            <table style="width:100%;margin:24px 0;border-collapse:collapse">
+              <tr style="background:#f7f6f3">
+                <td style="padding:14px 18px;font-size:15px">📞 Calls answered</td>
+                <td style="padding:14px 18px;font-size:22px;font-weight:700;text-align:right">${newCalls || 0}</td>
+              </tr>
+              <tr>
+                <td style="padding:14px 18px;font-size:15px">👤 Leads captured</td>
+                <td style="padding:14px 18px;font-size:22px;font-weight:700;text-align:right;color:#ff5c00">${newLeads || 0}</td>
+              </tr>
+              ${(newAppts || 0) > 0 ? `<tr style="background:#f7f6f3"><td style="padding:14px 18px;font-size:15px">📅 Appointments booked</td><td style="padding:14px 18px;font-size:22px;font-weight:700;text-align:right">${newAppts}</td></tr>` : ''}
+            </table>
+            ${leadRows ? `<h3 style="margin:0 0 10px;font-size:15px">Recent leads</h3>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #f0f0f0;border-radius:8px;overflow:hidden">
+              <thead><tr style="background:#f7f6f3"><th style="padding:10px 14px;text-align:left;font-size:13px;color:#888">Name</th><th style="padding:10px 14px;text-align:left;font-size:13px;color:#888">Phone</th><th style="padding:10px 14px;text-align:left;font-size:13px;color:#888">Reason</th></tr></thead>
+              <tbody>${leadRows}</tbody>
+            </table>${moreLeads}` : ''}
+            <br/>
+            <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
+               style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
+              View full dashboard →
+            </a>
+            <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+            ${emailFooter(biz.email)}
+          </div>`
         });
         console.log(`[weekly-digest] sent to ${biz.email}`);
       } catch (err) {
