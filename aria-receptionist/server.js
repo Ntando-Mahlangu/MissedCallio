@@ -178,6 +178,10 @@ app.post('/signup', signupLimiter, async (req, res) => {
   if (!email.includes('@')) {
     return res.status(400).json({ error: 'Please enter a valid email address.' });
   }
+  const VALID_PLANS = ['starter', 'growth', 'pro'];
+  if (plan && !VALID_PLANS.includes(plan)) {
+    return res.status(400).json({ error: 'Invalid plan selected.' });
+  }
 
   const normalizedEmail = email.toLowerCase().trim();
 
@@ -749,7 +753,7 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
             method: 'POST',
             headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+              from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
               to: sendTo,
               subject: `Voicemail from ${callerNum} — ${biz.business_name}`,
               html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -833,43 +837,36 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
     pushLeadToHubSpot(business.hubspot_api_key, lead).catch(() => {});
   }
 
-  // First-lead milestone email
-  if (!error && process.env.RESEND_API_KEY) {
-    const { count: totalLeads } = await supabase.from('leads')
-      .select('id', { count: 'exact', head: true }).eq('business_id', businessId);
-    if (totalLeads === 1) {
-      const { data: biz } = await supabase.from('businesses')
-        .select('email, name, business_name').eq('id', businessId).single();
-      if (biz) {
-        fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
-            to:      biz.email,
-            subject: `🎉 Aria just captured your first lead — ${lead.name}`,
-            html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
-              <h2 style="color:#ff5c00">Your first lead is in!</h2>
-              <p>Hi ${biz.name},</p>
-              <p>Aria just answered a call for <strong>${biz.business_name}</strong> and captured your first lead:</p>
-              <table style="width:100%;margin:20px 0;border-collapse:collapse">
-                <tr><td style="padding:8px 0;color:#888;font-size:14px">Name</td><td style="padding:8px 0;font-weight:500">${lead.name}</td></tr>
-                <tr><td style="padding:8px 0;color:#888;font-size:14px">Phone</td><td style="padding:8px 0;font-weight:500">${lead.phone}</td></tr>
-                <tr><td style="padding:8px 0;color:#888;font-size:14px">Reason</td><td style="padding:8px 0;font-weight:500">${lead.issue}</td></tr>
-              </table>
-              <p>Every missed call from here on is a captured lead. Check your dashboard to see more.</p>
-              <br/>
-              <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
-                 style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
-                View Dashboard →
-              </a>
-              <br/><br/><p style="color:#888">— The MissedCallio Team</p>
-              ${emailFooter(biz.email)}
-            </div>`
-          })
-        }).catch(() => {});
-        console.log(`[milestone] first-lead email sent to ${biz.email}`);
-      }
+  // Lead email alert + first-lead milestone
+  if (!error && hasEmailProvider()) {
+    const { data: biz } = await supabase.from('businesses')
+      .select('email, name, business_name').eq('id', businessId).single();
+    if (biz) {
+      const { count: totalLeads } = await supabase.from('leads')
+        .select('id', { count: 'exact', head: true }).eq('business_id', businessId);
+      const isFirst = totalLeads === 1;
+      sendEmail({
+        to: biz.email,
+        subject: isFirst
+          ? `Aria just captured your first lead — ${lead.name}`
+          : `New lead captured: ${lead.name}`,
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+          <h2 style="color:#ff5c00">${isFirst ? 'Your first lead is in!' : 'New lead captured'}</h2>
+          <p>Hi ${biz.name},</p>
+          <p>Aria answered a call for <strong>${biz.business_name}</strong> and captured a new lead:</p>
+          <table style="width:100%;margin:20px 0;border-collapse:collapse">
+            <tr><td style="padding:8px 0;color:#888;font-size:14px">Name</td><td style="padding:8px 0;font-weight:500">${lead.name}</td></tr>
+            <tr><td style="padding:8px 0;color:#888;font-size:14px">Phone</td><td style="padding:8px 0;font-weight:500">${lead.phone}</td></tr>
+            <tr><td style="padding:8px 0;color:#888;font-size:14px">Reason</td><td style="padding:8px 0;font-weight:500">${lead.issue}</td></tr>
+          </table>
+          <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
+             style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
+            View Dashboard →
+          </a>
+          <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+          ${emailFooter(biz.email)}
+        </div>`
+      }).catch(() => {});
     }
   }
 
@@ -1195,7 +1192,7 @@ async function routeToStaff(businessId, callId, call, { staff_name }) {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
         to: match.email,
         subject: `Someone is asking for you`,
         html: `<p>A caller is on the line asking for you (${match.name}). Caller number: ${call?.customer?.number || 'unknown'}.</p>`
@@ -1246,10 +1243,10 @@ app.get('/unsubscribe', async (req, res) => {
   if (!tokenValid) {
     return res.status(400).send('<p>Invalid unsubscribe link.</p>');
   }
-  await supabase.from('businesses').update({ voicemail_email: null }).eq('email', email);
+  await supabase.from('businesses').update({ voicemail_email: null, email_unsubscribed: true }).eq('email', email);
   res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:60px">
     <h2>Unsubscribed</h2>
-    <p>Your voicemail notification emails have been stopped.</p>
+    <p>You've been unsubscribed from all MissedCallio emails.</p>
     <p>To fully manage your notification preferences, visit <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard">your dashboard</a>.</p>
   </body></html>`);
 });
@@ -1269,7 +1266,7 @@ async function sendWelcomeEmail(business, phoneNumber) {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
         to:      business.email,
         subject: `You're live on MissedCallio!`,
         html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -1462,7 +1459,7 @@ async function sendOTPEmail(email, otp) {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
         to:      email,
         subject: `Your MissedCallio login code: ${otp}`,
         html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
@@ -1482,7 +1479,7 @@ async function sendOTPEmail(email, otp) {
 // =============================================================
 app.post('/api/settings', authMiddleware, async (req, res) => {
   const { businessId } = req;
-  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl, aiName, afterHoursOnly, hubspotApiKey } = req.body;
+  const { bizHours, bizAddress, bizPricing, mobileNumber, slackWebhookUrl, voicemailEmail, holdMessage, outboundWebhookUrl, aiName, afterHoursOnly, hubspotApiKey, timezone } = req.body;
   const updates = {};
   if (bizHours    !== undefined) updates.biz_hours   = bizHours;
   if (bizAddress  !== undefined) updates.biz_address = bizAddress;
@@ -1492,6 +1489,7 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
   if (voicemailEmail  !== undefined) updates.voicemail_email   = voicemailEmail  || null;
   if (holdMessage     !== undefined) updates.hold_message      = holdMessage      || null;
   if (outboundWebhookUrl !== undefined) updates.outbound_webhook_url = outboundWebhookUrl || null;
+  if (timezone !== undefined) updates.timezone = timezone || null;
   if (aiName !== undefined) updates.ai_name = aiName || null;
   if (afterHoursOnly !== undefined) updates.after_hours_only = !!afterHoursOnly;
   if (hubspotApiKey !== undefined) updates.hubspot_api_key = hubspotApiKey || null;
@@ -1581,7 +1579,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, referral_code, referred_by_code, created_at')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, referral_code, referred_by_code, created_at, timezone')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -1727,7 +1725,7 @@ app.post('/api/team', authMiddleware, async (req, res) => {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+        from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
         to: email,
         subject: `You've been added to ${biz?.business_name || 'a MissedCallio account'}`,
         html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -1853,6 +1851,22 @@ app.get('/api/calls/export', authMiddleware, async (req, res) => {
   res.send(csv);
 });
 
+app.get('/api/appointments/export', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase.from('appointments').select('*')
+    .eq('business_id', req.businessId).order('appointment_time', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const rows = data || [];
+  const header = 'Name,Phone,Service,Appointment Time,Notes,Status,Reminder Sent\n';
+  const csv = header + rows.map(r =>
+    [r.name, r.phone, r.service, r.appointment_time, r.notes, r.status, r.reminder_sent]
+      .map(v => `"${String(v||'').replace(/"/g,'""')}"`)
+      .join(',')
+  ).join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=appointments.csv');
+  res.send(csv);
+});
+
 // =============================================================
 //  MANIFEST.JSON
 // =============================================================
@@ -1934,10 +1948,24 @@ app.get('/api/subscription/portal', authMiddleware, async (req, res) => {
 
 app.post('/api/subscription/cancel', authMiddleware, async (req, res) => {
   const { data: biz } = await supabase.from('businesses')
-    .select('paddle_subscription_id, plan').eq('id', req.businessId).single();
+    .select('paddle_subscription_id, plan, email, name, business_name').eq('id', req.businessId).single();
   if (!biz?.paddle_subscription_id) return res.status(400).json({ error: 'No active subscription found.' });
   const result = await cancelPaddleSubscription(biz.paddle_subscription_id);
   if (!result.success) return res.status(500).json({ error: result.error });
+  // Send cancellation confirmation email
+  if (hasEmailProvider() && biz.email) {
+    sendEmail({
+      to: biz.email,
+      subject: `Your MissedCallio subscription has been cancelled`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+        <h2>Subscription cancelled</h2>
+        <p>Hi ${biz.name},</p>
+        <p>We've received your cancellation request for <strong>${biz.business_name}</strong>. Your subscription will remain active until the end of your current billing period, after which Aria will stop answering your calls.</p>
+        <p>If you change your mind, you can reactivate at any time from your dashboard.</p>
+        <p style="color:#888">— The MissedCallio Team</p>
+      </div>`
+    }).catch(() => {});
+  }
   res.json({ success: true, message: 'Subscription will cancel at end of billing period.' });
 });
 
@@ -2108,7 +2136,7 @@ async function runReminderPoller() {
               method: 'POST',
               headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+                from: `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
                 to: biz.email,
                 subject: 'Your MissedCallio trial has ended',
                 html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -2171,7 +2199,7 @@ async function runTrialWarningPoller() {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
             to:      biz.email,
             subject: `Your MissedCallio trial ends in 2 days`,
             html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -2207,7 +2235,7 @@ setInterval(runTrialWarningPoller, 60 * 60 * 1000);  // hourly
 // =============================================================
 async function runWeeklyDigestPoller() {
   try {
-    if (!process.env.RESEND_API_KEY) return;
+    if (!hasEmailProvider()) return;
     const now = new Date();
     // Only run on Mondays between 8:00 and 8:59 UTC
     if (now.getUTCDay() !== 1 || now.getUTCHours() !== 8) return;
@@ -2217,7 +2245,8 @@ async function runWeeklyDigestPoller() {
     const { data: businesses } = await supabase
       .from('businesses')
       .select('id, name, email, business_name, status')
-      .in('status', ['active', 'trial']);
+      .in('status', ['active', 'trial'])
+      .neq('email_unsubscribed', true);
 
     if (!businesses?.length) return;
 
@@ -2236,7 +2265,7 @@ async function runWeeklyDigestPoller() {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+            from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
             to:      biz.email,
             subject: `Your week with Aria — ${newLeads} lead${newLeads !== 1 ? 's' : ''} captured`,
             html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
@@ -2277,7 +2306,7 @@ setInterval(runWeeklyDigestPoller, 60 * 60 * 1000);  // hourly (runs only on Mon
 //  ONBOARDING DRIP POLLER — day 1, day 3, day 6 emails
 // =============================================================
 async function runDripPoller() {
-  if (!process.env.RESEND_API_KEY) return;
+  if (!hasEmailProvider()) return;
   const base = process.env.SERVER_URL || 'https://missedcallio.online';
   const now  = Date.now();
 
@@ -2338,7 +2367,8 @@ async function runDripPoller() {
     const { data: trials } = await supabase
       .from('businesses')
       .select('id, name, email, business_name, created_at, drip_day1_sent, drip_day3_sent, drip_day6_sent')
-      .eq('status', 'trial');
+      .eq('status', 'trial')
+      .neq('email_unsubscribed', true);
 
     if (!trials?.length) return;
 
@@ -2352,7 +2382,7 @@ async function runDripPoller() {
             method: 'POST',
             headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.io'}>`,
+              from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
               to:      biz.email,
               subject: drip.subject,
               html:    drip.html(biz),
@@ -2375,6 +2405,13 @@ setInterval(runDripPoller, 60 * 60 * 1000);  // hourly
 // =============================================================
 //  START
 // =============================================================
+// 404 handler
+app.use((req, res) => {
+  res.status(404).sendFile('404.html', { root: new URL('.', import.meta.url).pathname }, (err) => {
+    if (err) res.status(404).send('<h1>404 — Page not found</h1><p><a href="/">Back to home</a></p>');
+  });
+});
+
 // Sentry must be added after all routes, before listen
 if (process.env.SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
 

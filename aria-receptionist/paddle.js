@@ -12,7 +12,9 @@
 
 import crypto from 'crypto';
 
-const PADDLE_API = 'https://api.paddle.com';
+const PADDLE_API = process.env.PADDLE_ENV === 'sandbox'
+  ? 'https://sandbox-api.paddle.com'
+  : 'https://api.paddle.com';
 
 // Price IDs must be set in Railway env vars (prefix: pri_)
 // Leave the fallbacks empty — checkout will warn rather than silently use wrong IDs
