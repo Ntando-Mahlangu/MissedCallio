@@ -360,7 +360,7 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
           <div id="notif-list" style="max-height:360px;overflow-y:auto"></div>
         </div>
       </div>
-      <a href="mailto:support@missedcallio.io" class="logout-btn" style="text-decoration:none">Help</a>
+      <a href="mailto:support@missedcallio.online" class="logout-btn" style="text-decoration:none">Help</a>
       <button class="logout-btn" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -1615,7 +1615,7 @@ async function openBillingPortal() {
     if (d.url) {
       window.open(d.url, '_blank');
     } else {
-      alert(d.error || 'Could not open billing portal. Contact support@missedcallio.io.');
+      alert(d.error || 'Could not open billing portal. Contact support@missedcallio.online.');
     }
   } catch { alert('Network error. Please try again.'); }
   btn.textContent = DATA?.business?.status === 'trial' ? 'Add payment method →' : 'Manage billing →';
@@ -1677,7 +1677,7 @@ async function deleteAccount() {
     localStorage.clear();
     location.href = '/';
   } else {
-    alert(d.error || 'Failed to delete account. Please contact support@missedcallio.io.');
+    alert(d.error || 'Failed to delete account. Please contact support@missedcallio.online.');
   }
 }
 
