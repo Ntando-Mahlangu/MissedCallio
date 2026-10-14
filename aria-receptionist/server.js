@@ -661,7 +661,7 @@ if (!process.env.VAPI_WEBHOOK_SECRET) {
 }
 
 // Plan call limits
-const PLAN_CALL_LIMITS = { starter: 100, growth: 500 };
+const PLAN_CALL_LIMITS = { starter: 100, growth: 500, pro: 2000 };
 
 // =============================================================
 //  VAPI WEBHOOK — HMAC verify signature, handle events
@@ -1633,6 +1633,37 @@ app.post('/api/notifications/read', authMiddleware, async (req, res) => {
 });
 
 // =============================================================
+//  INVOICE HISTORY
+// =============================================================
+app.get('/api/invoices', authMiddleware, async (req, res) => {
+  if (!process.env.PADDLE_API_KEY) return res.json({ invoices: [] });
+  const { data: biz } = await supabase.from('businesses')
+    .select('paddle_customer_id').eq('id', req.businessId).single();
+  if (!biz?.paddle_customer_id) return res.json({ invoices: [] });
+  try {
+    const paddleEnv = process.env.PADDLE_ENV === 'sandbox' ? 'sandbox' : 'production';
+    const apiBase   = paddleEnv === 'sandbox' ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
+    const r = await fetch(`${apiBase}/transactions?customer_id=${biz.paddle_customer_id}&status=completed&per_page=25`, {
+      headers: { Authorization: `Bearer ${process.env.PADDLE_API_KEY}` }
+    });
+    if (!r.ok) return res.json({ invoices: [] });
+    const data = await r.json();
+    const invoices = (data.data || []).map(t => ({
+      id:      t.id,
+      date:    t.billed_at || t.created_at,
+      amount:  t.details?.totals?.grand_total,
+      currency: t.currency_code,
+      status:  t.status,
+      invoice_url: t.invoice_url || null,
+    }));
+    res.json({ invoices });
+  } catch (err) {
+    console.error('[invoices]', err.message);
+    res.json({ invoices: [] });
+  }
+});
+
+// =============================================================
 //  REFERRAL INFO
 // =============================================================
 app.get('/api/referrals', authMiddleware, async (req, res) => {
@@ -1669,7 +1700,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
   const [bizResult, leadsResult, callsResult, apptsResult, returningResult, statResult, recentCallsResult] = await Promise.all([
     supabase.from('businesses')
-      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, referral_code, referred_by_code, created_at, timezone')
+      .select('id, name, business_name, email, plan, status, trial_ends_at, missedcall_number, mobile_number, biz_hours, biz_address, biz_pricing, slack_webhook_url, voicemail_email, hold_message, onboarding_complete, outbound_webhook_url, ai_name, aria_paused, after_hours_only, referral_code, referred_by_code, created_at, timezone, calls_this_month')
       .eq('id', businessId).single(),
     supabase.from('leads').select('*', { count: 'exact' })
       .eq('business_id', businessId).order('received_at', { ascending: false })
@@ -2486,6 +2517,75 @@ async function runDripPoller() {
 }
 
 setInterval(runDripPoller, 60 * 60 * 1000);  // hourly
+
+// =============================================================
+//  USAGE NOTIFICATION POLLER — warn at 80% of monthly call limit
+// =============================================================
+async function runUsageNotificationPoller() {
+  if (!hasEmailProvider()) return;
+  try {
+    const { data: businesses } = await supabase
+      .from('businesses')
+      .select('id, name, email, business_name, plan, calls_this_month, mobile_number')
+      .in('status', ['active', 'trial'])
+      .neq('email_unsubscribed', true);
+
+    if (!businesses?.length) return;
+
+    for (const biz of businesses) {
+      const limit = PLAN_CALL_LIMITS[(biz.plan || 'starter').toLowerCase()];
+      if (!limit) continue;
+      const pct = (biz.calls_this_month || 0) / limit;
+      if (pct < 0.8 || pct >= 1.0) continue;
+
+      // Check if we already sent a warning this month via notification table
+      const { count } = await supabase.from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_id', biz.id)
+        .eq('type', 'usage_warning')
+        .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString());
+
+      if (count > 0) continue; // already warned this month
+
+      const used  = biz.calls_this_month || 0;
+      const pctStr = Math.round(pct * 100);
+      const SERVER_URL = process.env.SERVER_URL || 'https://missedcallio.online';
+
+      try {
+        await sendEmail({
+          to: biz.email,
+          subject: `You've used ${pctStr}% of your monthly calls`,
+          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+            <h2 style="color:#ff5c00">Call usage notice</h2>
+            <p>Hi ${biz.name},</p>
+            <p>You've used <strong>${used} of ${limit} calls</strong> (${pctStr}%) for <strong>${biz.business_name}</strong> this month.</p>
+            <p>If you run out, Aria will stop answering new calls until the counter resets on the 1st of next month.</p>
+            <p>To get more capacity, upgrade your plan from your dashboard.</p>
+            <br/>
+            <a href="${SERVER_URL}/dashboard" style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">View dashboard →</a>
+            <br/><br/><p style="color:#888">— The MissedCallio Team</p>
+            ${emailFooter(biz.email)}
+          </div>`
+        });
+        // Store notification so dashboard can surface it too
+        await supabase.from('notifications').insert({
+          business_id: biz.id,
+          type: 'usage_warning',
+          title: `${pctStr}% of monthly calls used`,
+          body: `You've used ${used} of ${limit} calls this month.`,
+          read: false,
+        });
+        console.log(`[usage-notify] warned ${biz.email} at ${pctStr}%`);
+      } catch (err) {
+        console.error(`[usage-notify] failed for ${biz.email}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[usage-notify] poller error:', err.message);
+  }
+}
+
+setInterval(runUsageNotificationPoller, 6 * 60 * 60 * 1000); // every 6 hours
 
 // =============================================================
 //  START

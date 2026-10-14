@@ -292,20 +292,71 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
 .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
 @media(max-width:700px){.charts-row{grid-template-columns:1fr}}
 
+/* ── USAGE BAR ── */
+.usage-bar-wrap{margin-top:6px}
+.usage-bar-track{height:6px;background:var(--gray-light);border-radius:3px;overflow:hidden}
+.usage-bar-fill{height:100%;border-radius:3px;transition:width .5s ease;background:var(--accent)}
+.usage-bar-fill.warn{background:#f59e0b}
+.usage-bar-fill.danger{background:#dc2626}
+.usage-bar-label{font-size:11px;color:var(--gray);margin-top:3px}
+
+/* ── PLAN CARDS ── */
+.plan-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin:16px 0}
+.plan-card{
+  border:1.5px solid var(--border);border-radius:var(--radius);padding:18px;
+  cursor:pointer;transition:border-color .2s,box-shadow .2s;background:var(--white);
+}
+.plan-card:hover{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,92,0,.1)}
+.plan-card.current{border-color:var(--accent);background:var(--accent-light)}
+.plan-card-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:4px}
+.plan-card-price{font-size:22px;font-weight:700;color:var(--accent);margin-bottom:6px}
+.plan-card-desc{font-size:12px;color:var(--gray)}
+
+/* ── INVOICE TABLE ── */
+.invoice-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--surface)}
+.invoice-row:last-child{border-bottom:none}
+.invoice-date{font-size:13px;color:var(--gray)}
+.invoice-amount{font-size:14px;font-weight:600}
+.invoice-link{font-size:12px;color:var(--accent);text-decoration:none}
+.invoice-link:hover{text-decoration:underline}
+
+/* ── ONBOARDING STEPS IMPROVED ── */
+.onboarding-step-done .check{color:var(--green)}
+.onboarding-step-pending .check{color:var(--gray)}
+.onboarding-progress{height:4px;background:var(--gray-light);border-radius:2px;margin-bottom:16px;overflow:hidden}
+.onboarding-progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s ease}
+
 /* ── RESPONSIVE ── */
 @media(max-width:700px){
-  main{padding:20px 16px}
-  .stats-grid{grid-template-columns:1fr 1fr}
-  header{padding:0 16px}
+  main{padding:16px 12px}
+  .stats-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .stat-card{padding:14px 14px}
+  .stat-value{font-size:24px}
+  header{padding:0 12px;height:56px;gap:8px}
+  .h-logo{font-size:15px}
+  .h-biz{display:none}
+  .h-right{gap:6px}
+  #last-refresh{display:none}
+  .logout-btn{padding:5px 8px;font-size:12px}
+  .plan-badge{font-size:10px;padding:3px 7px}
   table{font-size:13px}
-  thead th,tbody td{padding:10px 12px}
-  .login-card{padding:36px 24px;margin:16px}
-  /* Make calls table (7 cols) scrollable on mobile */
-  #tab-calls .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  #tab-calls table{min-width:640px}
+  thead th,tbody td{padding:10px 10px}
+  .login-card{padding:32px 20px;margin:16px}
+  .tabs{gap:2px;padding:3px}
+  .tab-btn{padding:7px 12px;font-size:12px;white-space:nowrap}
+  /* All multi-col tables scrollable on mobile */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #tab-calls table{min-width:580px}
+  #tab-leads table{min-width:460px}
+  #tab-appointments table{min-width:520px}
   /* Hide less-critical columns on mobile */
   #tab-calls thead th:nth-child(5),
   #tab-calls tbody td:nth-child(5){display:none}
+  .info-grid{grid-template-columns:1fr}
+  .charts-row{grid-template-columns:1fr}
+  .plan-cards{grid-template-columns:1fr}
+  #aria-status-bar{flex-wrap:wrap;gap:8px}
+  #aria-status-bar button{flex:1;min-width:120px;text-align:center}
 }
 </style>
 </head>
@@ -374,15 +425,17 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
 
       <!-- ONBOARDING BANNER -->
       <div id="onboarding-banner" style="display:none" class="onboarding-banner">
-        <div class="onboarding-title">🚀 Getting Started</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="onboarding-title" style="margin-bottom:0">Getting started</div>
+          <button onclick="dismissOnboarding()" style="background:none;border:none;color:var(--gray);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;padding:2px 6px">Dismiss</button>
+        </div>
+        <div class="onboarding-progress"><div class="onboarding-progress-fill" id="onboarding-progress-fill" style="width:33%"></div></div>
         <div class="onboarding-steps">
-          <div class="onboarding-step"><span class="check">✅</span> Account created</div>
-          <div class="onboarding-step"><span class="check">☐</span> <span>Set up call forwarding — <a href="/call-forwarding" target="_blank" style="color:var(--accent)">view instructions</a></span></div>
-          <div class="onboarding-step"><span class="check">☐</span> Make a test call to your MissedCallio number</div>
+          <div class="onboarding-step onboarding-step-done"><span class="check">✓</span> <span>Account created</span></div>
+          <div class="onboarding-step" id="ob-step-forwarding"><span class="check">○</span> <span>Set up call forwarding — <a href="/call-forwarding" target="_blank" style="color:var(--accent);font-weight:500">step-by-step guide →</a></span></div>
+          <div class="onboarding-step" id="ob-step-call"><span class="check">○</span> <span id="ob-step-call-text">Make a test call to your Aria number</span></div>
         </div>
-        <div style="margin-top:14px">
-          <button onclick="dismissOnboarding()" style="background:none;border:none;color:var(--gray);font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif">Dismiss</button>
-        </div>
+        <p style="font-size:12px;color:var(--gray);margin-top:12px;margin-bottom:0">Need help? <a href="mailto:support@missedcallio.online" style="color:var(--accent)">Contact support</a></p>
       </div>
 
       <!-- ARIA STATUS BAR -->
@@ -424,6 +477,14 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
           <div class="stat-label">Conversion Rate</div>
           <div class="stat-value green" id="s-conversion">—</div>
           <div class="stat-sub">leads → appointments</div>
+        </div>
+        <div class="stat-card" id="usage-stat-card" style="display:none">
+          <div class="stat-label">Monthly Calls</div>
+          <div class="stat-value" id="s-usage">—</div>
+          <div class="usage-bar-wrap">
+            <div class="usage-bar-track"><div class="usage-bar-fill" id="usage-bar-fill" style="width:0%"></div></div>
+            <div class="usage-bar-label" id="usage-bar-label"></div>
+          </div>
         </div>
       </div>
 
@@ -616,6 +677,20 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
           </div>
         </div>
 
+        <!-- PLAN UPGRADE/DOWNGRADE -->
+        <div class="info-card" style="margin-top:20px" id="plan-upgrade-card">
+          <div class="info-card-title" style="margin-bottom:8px">Change Plan</div>
+          <p style="font-size:13px;color:var(--gray);margin-bottom:14px">All plans include a 3-day free trial. Upgrade or downgrade at any time.</p>
+          <div class="plan-cards" id="plan-cards"></div>
+          <p style="font-size:12px;color:var(--gray);margin-top:8px">Changes take effect immediately. Contact <a href="mailto:support@missedcallio.online" style="color:var(--accent)">support</a> if you need help.</p>
+        </div>
+
+        <!-- INVOICE HISTORY -->
+        <div class="info-card" style="margin-top:20px" id="invoice-card">
+          <div class="info-card-title" style="margin-bottom:12px">Invoice History</div>
+          <div id="invoice-list"><span style="font-size:13px;color:var(--gray)">Loading…</span></div>
+        </div>
+
         <!-- REFERRAL PANEL -->
         <div class="info-card" style="margin-top:20px">
           <div class="info-card-title" style="margin-bottom:4px">Refer a business</div>
@@ -716,7 +791,8 @@ tbody tr:nth-child(n+8){animation-delay:.62s}
   <footer style="text-align:center;padding:24px 16px;font-size:12px;color:#aaa">
     <a href="/terms" style="color:#aaa;text-decoration:none" target="_blank">Terms</a> ·
     <a href="/privacy" style="color:#aaa;text-decoration:none" target="_blank">Privacy</a> ·
-    <a href="mailto:support@missedcallio.online" style="color:#aaa;text-decoration:none">Support</a>
+    <a href="mailto:support@missedcallio.online" style="color:#aaa;text-decoration:none">Support</a> ·
+    <a href="/status" style="color:#aaa;text-decoration:none" target="_blank">System Status</a>
   </footer>
 </div>
 
@@ -1237,8 +1313,107 @@ function renderInfo() {
   document.getElementById('s-after-hours').checked  = !!b.after_hours_only;
   document.getElementById('s-timezone').value       = b.timezone               || '';
   if (b.has_hubspot) document.getElementById('s-hubspot').placeholder = '••••••••••••• (configured)';
+
+  // Usage bar
+  const PLAN_LIMITS = { starter: 100, growth: 500, pro: 2000 };
+  const planKey = (b.plan || 'starter').toLowerCase();
+  const limit = PLAN_LIMITS[planKey];
+  if (limit && b.calls_this_month != null) {
+    const used = b.calls_this_month;
+    const pct  = Math.min(100, Math.round((used / limit) * 100));
+    const card = document.getElementById('usage-stat-card');
+    card.style.display = '';
+    document.getElementById('s-usage').textContent = used;
+    const fill = document.getElementById('usage-bar-fill');
+    fill.style.width = pct + '%';
+    fill.className = 'usage-bar-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
+    document.getElementById('usage-bar-label').textContent = `${used} / ${limit} (${pct}%)`;
+  }
+
+  // Onboarding steps
+  if (b.onboarding_complete === false) {
+    const hasCalls = (DATA.stats?.totalCalls || 0) > 0;
+    const pct = hasCalls ? 100 : (b.missedcall_number ? 66 : 33);
+    const fill = document.getElementById('onboarding-progress-fill');
+    if (fill) fill.style.width = pct + '%';
+    const stepFwd = document.getElementById('ob-step-forwarding');
+    const stepCall = document.getElementById('ob-step-call');
+    if (b.missedcall_number && stepFwd) {
+      stepFwd.className = 'onboarding-step onboarding-step-done';
+      stepFwd.querySelector('.check').textContent = '✓';
+    }
+    if (hasCalls && stepCall) {
+      stepCall.className = 'onboarding-step onboarding-step-done';
+      stepCall.querySelector('.check').textContent = '✓';
+    } else if (b.missedcall_number && stepCall) {
+      const txt = document.getElementById('ob-step-call-text');
+      if (txt) txt.innerHTML = `Call <strong>${b.missedcall_number}</strong> from another phone to test Aria`;
+    }
+  }
+
+  // Plan cards
+  renderPlanCards(b);
+
+  // Load invoices when account tab is visible
+  loadInvoices();
 }
 
+const PLAN_DEFS = [
+  { key: 'starter', name: 'Starter', price: '$29/mo', desc: '100 calls/month · Lead capture · SMS alerts' },
+  { key: 'growth',  name: 'Growth',  price: '$79/mo', desc: '500 calls/month · Appointments · HubSpot' },
+  { key: 'pro',     name: 'Pro',     price: '$149/mo', desc: '2,000 calls/month · Staff directory · All features' },
+];
+
+function renderPlanCards(b) {
+  const container = document.getElementById('plan-cards');
+  if (!container) return;
+  const current = (b.plan || 'starter').toLowerCase();
+  container.innerHTML = PLAN_DEFS.map(p => `
+    <div class="plan-card ${p.key === current ? 'current' : ''}" onclick="selectPlan('${p.key}')">
+      <div class="plan-card-name">${p.name}${p.key === current ? ' <span style="font-size:11px;font-weight:600;color:var(--accent)">Current</span>' : ''}</div>
+      <div class="plan-card-price">${p.price}</div>
+      <div class="plan-card-desc">${p.desc}</div>
+    </div>
+  `).join('');
+}
+
+async function selectPlan(planKey) {
+  const current = (DATA?.business?.plan || 'starter').toLowerCase();
+  if (planKey === current) return;
+  // Open billing portal for plan changes — Paddle handles the upgrade/downgrade UI
+  openBillingPortal();
+}
+
+async function loadInvoices() {
+  const token = localStorage.getItem('mc_token');
+  const el = document.getElementById('invoice-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/invoices', { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    const invoices = d.invoices || [];
+    if (!invoices.length) {
+      el.innerHTML = '<span style="font-size:13px;color:var(--gray)">No invoices yet. They appear here once you\'ve been billed.</span>';
+      return;
+    }
+    el.innerHTML = invoices.map(inv => {
+      const amount = inv.amount != null
+        ? `${(inv.currency || 'USD')} ${(inv.amount / 100).toFixed(2)}`
+        : '—';
+      const dateStr = inv.date ? new Date(inv.date).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' }) : '—';
+      const link = inv.invoice_url
+        ? `<a class="invoice-link" href="${inv.invoice_url}" target="_blank" rel="noopener">Download PDF</a>`
+        : '';
+      return `<div class="invoice-row">
+        <span class="invoice-date">${dateStr}</span>
+        <span class="invoice-amount">${amount}</span>
+        ${link}
+      </div>`;
+    }).join('');
+  } catch(_) {
+    el.innerHTML = '<span style="font-size:13px;color:var(--gray)">Unable to load invoices.</span>';
+  }
+}
 
 async function saveSettings(e) {
   e.preventDefault();
@@ -1301,6 +1476,7 @@ function showTab(name, btn) {
   if (name === 'staff')     loadStaff();
   if (name === 'team')      loadTeam();
   if (name === 'analytics') renderCharts();
+  if (name === 'info')      loadInvoices();
 }
 
 // ── STAFF ──
