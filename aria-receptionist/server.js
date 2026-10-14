@@ -538,14 +538,14 @@ function buildAssistantConfig(business) {
     name:  `MissedCall — ${business_name}`,
     model: {
       provider:     'anthropic',
-      model:        'claude-sonnet-4-5',
+      model:        process.env.VAPI_MODEL || 'claude-sonnet-4-5',
       systemPrompt: buildSystemPrompt(business),
       temperature:  0.7,
       maxTokens:    250,
     },
     voice: {
       provider:                 'elevenlabs',
-      voiceId:                  'EXAVITQu4vr4xnSDxMaL', // Sarah
+      voiceId:                  process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL', // Sarah
       model:                    'eleven_flash_v2_5',
       stability:                0.40,
       similarityBoost:          0.80,
@@ -754,16 +754,24 @@ app.post('/vapi/webhook/:businessId', async (req, res) => {
     }
 
     if (type === 'call-started') {
+      // Skip if paused/expired — status already checked above for tool-calls but
+      // call-started fires unconditionally; guard here too so no stale rows are created
+      if (biz?.aria_paused || isExpired) {
+        return res.json({ ok: true });
+      }
       console.log(`[call] started ${callId} (biz: ${businessId})`);
-      await supabase.from('calls').insert({
+      // Upsert guards against duplicate delivery double-counting the monthly limit
+      const { error: insertErr } = await supabase.from('calls').upsert({
         id:            callId,
         business_id:   businessId,
         caller_number: call?.customer?.number || null,
         started_at:    new Date().toISOString(),
         status:        'in_progress'
-      });
-      // Atomic increment — avoids race condition under concurrent calls
-      await supabase.rpc('increment_call_count', { biz_id: businessId });
+      }, { onConflict: 'id', ignoreDuplicates: true });
+      if (!insertErr) {
+        // Only increment counter when the row was actually new
+        await supabase.rpc('increment_call_count', { biz_id: businessId });
+      }
     }
 
     if (type === 'call-ended') {
@@ -912,7 +920,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
           <br/><br/><p style="color:#888">— The MissedCallio Team</p>
           ${emailFooter(biz.email)}
         </div>`
-      }).catch(() => {});
+      }).catch(err => console.error('[lead-email] failed:', err.message));
     }
   }
 
