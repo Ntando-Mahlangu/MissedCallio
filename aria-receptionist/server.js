@@ -162,6 +162,55 @@ function countryCodeFromPhone(phone) {
 }
 
 // =============================================================
+//  EMAIL HELPER — Brevo primary, Resend fallback
+//  sendEmail({ to, subject, html }) → resolves when sent (or silently nops)
+//  hasEmailProvider()              → true if any email provider is configured
+// =============================================================
+function hasEmailProvider() {
+  return !!(process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
+}
+
+async function sendEmail({ to, subject, html }) {
+  if (process.env.BREVO_API_KEY) {
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method:  'POST',
+      headers: {
+        'api-key':      process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender:  { name: 'MissedCallio', email: `noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}` },
+        to:      [{ email: to }],
+        subject,
+        htmlContent: html,
+      }),
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      throw new Error(`Brevo ${r.status}: ${txt}`);
+    }
+    return;
+  }
+  if (process.env.RESEND_API_KEY) {
+    const r = await fetch('https://api.resend.com/emails', {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from:    `MissedCallio <noreply@${process.env.EMAIL_DOMAIN || 'missedcallio.online'}>`,
+        to,
+        subject,
+        html,
+      }),
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      throw new Error(`Resend ${r.status}: ${txt}`);
+    }
+    return;
+  }
+}
+
+// =============================================================
 //  SIGNUP — POST /signup
 // =============================================================
 app.post('/signup', signupLimiter, async (req, res) => {
@@ -220,9 +269,10 @@ app.post('/signup', signupLimiter, async (req, res) => {
         biz_hours:     bizHours  || 'Monday to Friday 8am–6pm',
         biz_address:   bizAddress || '',
         biz_pricing:   bizPricing || 'Please call us for a quote',
-        plan:          plan || 'growth',
-        trial_ends_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        status:        'pending_verification',
+        plan:           plan || 'growth',
+        trial_ends_at:  new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        status:         'pending_verification',
+        calls_reset_at: new Date().toISOString(),
         departments:   departments || null,
         team_size:     teamSize    || null,
         office_type:   officeType  || 'solo',
@@ -366,11 +416,14 @@ app.post('/api/resend-pin', signupLimiter, async (req, res) => {
 
     const pin = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const normalizedEmail = email.toLowerCase().trim();
 
-    await supabase.from('auth_otps').insert({ email: email.toLowerCase().trim(), otp: pin, expires_at: expires });
+    // Invalidate any existing unused OTPs for this email before issuing a new one
+    await supabase.from('auth_otps').update({ used: true }).eq('email', normalizedEmail).eq('used', false);
+    await supabase.from('auth_otps').insert({ email: normalizedEmail, otp: pin, expires_at: expires });
 
     const firstName = business.name?.split(' ')[0] || 'there';
-    await sendVerificationPin(email.toLowerCase().trim(), firstName, pin);
+    await sendVerificationPin(normalizedEmail, firstName, pin);
 
     return res.json({ success: true });
   } catch (err) {
@@ -792,7 +845,7 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   if (!name || !phone) return { success: false, error: 'Missing name or phone' };
 
   const { data: business } = await supabase
-    .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments').eq('id', businessId).single();
+    .from('businesses').select('business_name, mobile_number, slack_webhook_url, departments, hubspot_api_key').eq('id', businessId).single();
 
   const { data: teamMembers } = await supabase
     .from('team_members')
@@ -811,7 +864,10 @@ async function saveLead(businessId, callId, call, { name, issue, phone }) {
   };
 
   const { error } = await supabase.from('leads').insert(lead);
-  if (error) console.error('[lead] insert error:', error.message);
+  if (error) {
+    console.error('[lead] insert error:', error.message);
+    return { success: false, error: error.message };
+  }
   await fireWebhook(businessId, 'lead.created', lead);
 
   // In-app notification
@@ -1256,7 +1312,7 @@ async function sendWelcomeEmail(business, phoneNumber) {
         <p>Your AI receptionist is set up for <strong>${business.business_name}</strong>.</p>
         <br/>${instructions}<br/><br/>
         <p>You'll get an SMS at <strong>${business.mobile_number}</strong> every time Aria captures a lead.</p>
-        <p>Your <strong>7-day free trial</strong> starts now.</p>
+        <p>Your <strong>3-day free trial</strong> starts now.</p>
         <br/>
         <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
            style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
@@ -1534,11 +1590,13 @@ app.post('/api/change-email/confirm', authMiddleware, async (req, res) => {
   const { data: record } = await supabase.from('auth_otps')
     .select('*').eq('email', norm).order('created_at', { ascending: false }).limit(1).single();
 
-  if (!record || record.otp !== otp || new Date(record.expires_at) < new Date()) {
+  const otpMatch = record && record.otp.length === otp.length &&
+    crypto.timingSafeEqual(Buffer.from(record.otp), Buffer.from(otp));
+  if (!record || record.used || !otpMatch || new Date(record.expires_at) < new Date()) {
     return res.status(400).json({ error: 'Invalid or expired code.' });
   }
 
-  await supabase.from('auth_otps').delete().eq('id', record.id);
+  await supabase.from('auth_otps').update({ used: true }).eq('id', record.id);
   const { error } = await supabase.from('businesses').update({ email: norm }).eq('id', req.businessId);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
@@ -2055,7 +2113,7 @@ app.get('/og-image', (_req, res) => {
   <text x="600" y="445" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#888888">Answers every call · Captures leads · Books appointments</text>
   <!-- CTA pill -->
   <rect x="450" y="480" width="300" height="52" rx="26" fill="#ff5c00"/>
-  <text x="600" y="513" font-family="Arial, sans-serif" font-size="20" font-weight="600" text-anchor="middle" fill="#ffffff">Start free for 7 days →</text>
+  <text x="600" y="513" font-family="Arial, sans-serif" font-size="20" font-weight="600" text-anchor="middle" fill="#ffffff">Start free for 3 days →</text>
   <!-- URL -->
   <text x="600" y="590" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#555555">missedcallio.online</text>
 </svg>`);
@@ -2161,7 +2219,7 @@ async function runReminderPoller() {
                 html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
                   <h2 style="color:#ff5c00">Your trial has ended</h2>
                   <p>Hi ${biz.name || biz.business_name},</p>
-                  <p>Your 7-day free trial for <strong>${biz.business_name}</strong> has ended.</p>
+                  <p>Your 3-day free trial for <strong>${biz.business_name}</strong> has ended.</p>
                   <p>Upgrade now to keep Aria answering your calls. It takes under a minute.</p>
                   <br/>
                   <a href="${SERVER_URL}/#pricing"
@@ -2220,7 +2278,7 @@ async function runTrialWarningPoller() {
           html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
             <h2 style="color:#ff5c00">Your free trial ends in 2 days</h2>
             <p>Hi ${biz.name},</p>
-            <p>Your 7-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 2 days.</p>
+            <p>Your 3-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 2 days.</p>
             <p>To keep Aria answering your calls, add a payment method before your trial ends.</p>
             <br/>
             <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
@@ -2254,7 +2312,7 @@ async function runWeeklyDigestPoller() {
     // Only run on Mondays between 8:00 and 8:59 UTC
     if (now.getUTCDay() !== 1 || now.getUTCHours() !== 8) return;
 
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const weekAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: businesses } = await supabase
       .from('businesses')

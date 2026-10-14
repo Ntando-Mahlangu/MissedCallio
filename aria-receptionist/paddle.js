@@ -284,8 +284,9 @@ export async function cancelPaddleSubscription(subscriptionId) {
 // Helper — reuse SMS function from server.js
 function normalizePhone(num) {
   if (!num) return num;
+  // Already E.164 — return as-is (strip spaces/dashes only)
+  if (num.startsWith('+')) return '+' + num.slice(1).replace(/\D/g, '');
   const digits = num.replace(/\D/g, '');
-  if (num.startsWith('+')) return '+' + digits;
   if (digits.length === 10) return '+1' + digits;
   if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
   return '+' + digits;

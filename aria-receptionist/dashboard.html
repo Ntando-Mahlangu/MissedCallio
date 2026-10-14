@@ -1508,8 +1508,6 @@ function renderCharts() {
   if (!DATA) return;
   try { drawCallsWeekChart(); } catch(e) { console.error('chart error', e); }
   try { drawLeadsApptsChart(); } catch(e) { console.error('chart error', e); }
-  return;
-  drawLeadsApptChart();
 }
 
 function drawCallsWeekChart() {
