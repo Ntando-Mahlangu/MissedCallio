@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Cookie Policy — MissedCallio</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--black:#0a0a0a;--white:#fafaf8;--gray:#6b6b6b;--gray-light:#e8e6e1;--accent:#ff5c00;--surface:#f2f0eb}
+body{font-family:'DM Sans',sans-serif;background:var(--white);color:var(--black);line-height:1.7}
+nav{position:sticky;top:0;z-index:100;padding:18px 48px;display:flex;align-items:center;gap:16px;background:rgba(250,250,248,0.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--gray-light)}
+.logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;text-decoration:none;color:var(--black)}
+.logo span{color:var(--accent)}
+.back{margin-left:auto;font-size:14px;color:var(--gray);text-decoration:none}
+.back:hover{color:var(--black)}
+.container{max-width:760px;margin:0 auto;padding:64px 24px 120px}
+.page-title{font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-2px;margin-bottom:8px}
+.last-updated{font-size:13px;color:var(--gray);margin-bottom:48px}
+h2{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;margin:40px 0 12px;letter-spacing:-0.5px}
+h3{font-size:16px;font-weight:600;margin:20px 0 8px}
+p{font-size:16px;color:#333;margin-bottom:16px}
+ul{padding-left:20px;margin-bottom:16px}
+ul li{font-size:16px;color:#333;margin-bottom:8px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.divider{height:1px;background:var(--gray-light);margin:40px 0}
+.cookie-table{width:100%;border-collapse:collapse;margin-bottom:24px;font-size:14px}
+.cookie-table th{background:var(--surface);padding:10px 14px;text-align:left;font-weight:600;font-size:13px;border:1px solid var(--gray-light)}
+.cookie-table td{padding:10px 14px;border:1px solid var(--gray-light);vertical-align:top;color:#333}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px}
+.badge-functional{background:#e8faf0;color:#166534}
+.badge-third{background:#fef3c7;color:#92400e}
+footer{padding:40px 48px;border-top:1px solid var(--gray-light);display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--gray)}
+.footer-logo{font-family:'Syne',sans-serif;font-size:18px;font-weight:800}
+.footer-logo span{color:var(--accent)}
+@media(max-width:768px){nav{padding:16px 20px}.container{padding:40px 20px 80px}.page-title{font-size:32px}footer{flex-direction:column;gap:12px;text-align:center;padding:24px 20px}.cookie-table{font-size:12px}}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="logo">Missed<span>Callio</span></a>
+  <a href="/" class="back">← Back to home</a>
+</nav>
+
+<div class="container">
+  <h1 class="page-title">Cookie Policy</h1>
+  <p class="last-updated">Last updated: October 2026</p>
+
+  <p>This Cookie Policy explains what cookies and similar technologies MissedCallio uses, why we use them, and how you can manage your preferences. It supplements our <a href="/privacy">Privacy Policy</a>.</p>
+
+  <div class="divider"></div>
+
+  <h2>1. What Are Cookies?</h2>
+  <p>Cookies are small text files stored on your device by a website. They help websites remember your preferences, keep you logged in, and understand how you use the site. Similar technologies include:</p>
+  <ul>
+    <li><strong>localStorage / sessionStorage</strong> — browser storage that persists beyond a single page load without a server-side expiry date. We use localStorage for your login session token and cookie consent preference.</li>
+    <li><strong>Pixel tags</strong> — we do not currently use pixel tags or tracking beacons.</li>
+  </ul>
+
+  <h2>2. Cookies We Use</h2>
+
+  <h3>2.1 Strictly Necessary (cannot be disabled)</h3>
+  <p>These are required for the site and dashboard to function. They do not collect data for marketing.</p>
+
+  <table class="cookie-table">
+    <tr>
+      <th>Name / Key</th>
+      <th>Type</th>
+      <th>Provider</th>
+      <th>Purpose</th>
+      <th>Duration</th>
+    </tr>
+    <tr>
+      <td><code>mc_token</code></td>
+      <td><span class="badge badge-functional">Functional</span></td>
+      <td>MissedCallio</td>
+      <td>Stores your login session token to keep you authenticated in the dashboard. Stored in localStorage.</td>
+      <td>30 days or until you sign out</td>
+    </tr>
+    <tr>
+      <td><code>mc_biz</code></td>
+      <td><span class="badge badge-functional">Functional</span></td>
+      <td>MissedCallio</td>
+      <td>Stores basic business details (name, plan) to display your dashboard header without an extra API call. Stored in localStorage.</td>
+      <td>30 days or until you sign out</td>
+    </tr>
+    <tr>
+      <td><code>mc_cookie_consent</code></td>
+      <td><span class="badge badge-functional">Functional</span></td>
+      <td>MissedCallio</td>
+      <td>Stores your cookie consent preference (accepted / declined) so the banner is not shown again. Stored in localStorage.</td>
+      <td>1 year</td>
+    </tr>
+  </table>
+
+  <h3>2.2 Third-Party Cookies (require consent)</h3>
+  <p>These are set by third-party services we use. They are only loaded if you accept cookies.</p>
+
+  <table class="cookie-table">
+    <tr>
+      <th>Name / Key</th>
+      <th>Type</th>
+      <th>Provider</th>
+      <th>Purpose</th>
+      <th>Duration</th>
+    </tr>
+    <tr>
+      <td>Various Tawk.to cookies (e.g. <code>TawkConnectionTime</code>, <code>twk_*</code>)</td>
+      <td><span class="badge badge-third">Third-party</span></td>
+      <td>Tawk.to (tawk.to)</td>
+      <td>Powers our live chat support widget. Tawk.to stores session and visitor identifiers to maintain chat continuity. Tawk.to may also collect browser/device information for their service.</td>
+      <td>Session to 6 months (varies by cookie)</td>
+    </tr>
+  </table>
+
+  <p>Tawk.to's privacy policy is available at <a href="https://www.tawk.to/privacy-policy/" target="_blank" rel="noopener">tawk.to/privacy-policy</a>.</p>
+
+  <h3>2.3 Analytics Cookies</h3>
+  <p>We do not currently use Google Analytics, Facebook Pixel, or any other analytics or advertising cookies. If we introduce analytics in the future, we will update this policy and request fresh consent.</p>
+
+  <h2>3. How We Obtain Consent</h2>
+  <p>When you first visit missedcallio.online, a cookie consent banner is displayed. You can choose to:</p>
+  <ul>
+    <li><strong>Accept</strong> — all cookies described above are enabled, including Tawk.to live chat.</li>
+    <li><strong>Decline</strong> — only strictly necessary cookies are used. Tawk.to live chat will not be loaded.</li>
+  </ul>
+  <p>Your preference is saved in localStorage so the banner does not reappear. You can change your preference at any time by clearing your browser's localStorage for missedcallio.online or by contacting us.</p>
+
+  <h2>4. Managing and Withdrawing Consent</h2>
+  <p>You can control cookies through several methods:</p>
+  <ul>
+    <li><strong>Browser settings:</strong> most browsers allow you to block or delete cookies. Note that blocking strictly necessary storage may prevent the dashboard from working. See your browser's help documentation for instructions.</li>
+    <li><strong>Opt out of Tawk.to:</strong> visit <a href="https://www.tawk.to/privacy-policy/" target="_blank" rel="noopener">tawk.to/privacy-policy</a> for opt-out options.</li>
+    <li><strong>Reset consent:</strong> clear localStorage for missedcallio.online in your browser's developer tools (Application → Local Storage → missedcallio.online → delete <code>mc_cookie_consent</code>). The consent banner will reappear on your next visit.</li>
+  </ul>
+
+  <h2>5. Do Not Track</h2>
+  <p>Some browsers send a "Do Not Track" (DNT) signal. We do not currently respond to DNT signals because there is no consistent industry standard for what they mean. We are watching this space and will update this policy if a standard emerges.</p>
+
+  <h2>6. Changes to This Policy</h2>
+  <p>We may update this Cookie Policy from time to time. We will notify you of material changes by email and by updating the date at the top of this page. The current version is always available at missedcallio.online/cookies.</p>
+
+  <h2>7. Contact Us</h2>
+  <p>If you have any questions about our use of cookies, contact us at:</p>
+  <p><a href="mailto:support@missedcallio.online">support@missedcallio.online</a></p>
+
+</div>
+
+<footer>
+  <div class="footer-logo">Missed<span>Callio</span></div>
+  <div>© 2026 MissedCallio. All rights reserved.</div>
+  <div style="display:flex;gap:20px"><a href="/terms" style="color:var(--gray)">Terms</a><a href="/privacy" style="color:var(--gray)">Privacy</a><a href="/refund" style="color:var(--gray)">Refunds</a><a href="/" style="color:var(--gray)">Home</a></div>
+</footer>
+
+</body>
+</html>
