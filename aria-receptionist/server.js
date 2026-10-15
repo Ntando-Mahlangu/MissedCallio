@@ -97,6 +97,7 @@ for (const [route, file] of Object.entries(SAFE_FILES)) {
 app.get('/terms',           (_req, res) => res.sendFile('terms.html',           { root: __dirname }));
 app.get('/privacy',         (_req, res) => res.sendFile('privacy.html',         { root: __dirname }));
 app.get('/refund',          (_req, res) => res.sendFile('refund.html',          { root: __dirname }));
+app.get('/cookies',         (_req, res) => res.sendFile('cookies.html',         { root: __dirname }));
 app.get('/call-forwarding', (_req, res) => res.sendFile('call-forwarding.html', { root: __dirname }));
 
 // =============================================================
