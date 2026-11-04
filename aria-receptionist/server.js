@@ -1058,6 +1058,10 @@ app.post('/twilio/sms', async (req, res) => {
     .set('Content-Type', 'text/xml')
     .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${msg}</Message></Response>`);
 
+  if (body === 'HELP' || body === 'INFO') {
+    return twiml('MissedCallio: appointment reminders & confirmations. Reply CANCEL to cancel your appointment. Msg&data rates may apply. Support: support@missedcallio.online');
+  }
+
   if (body === 'CANCEL' || body === 'STOP' || body === 'UNSUBSCRIBE') {
     const normalized = normalizePhone(from);
     const { data: appt } = await supabase
@@ -1279,8 +1283,10 @@ function unsubLink(email) {
 }
 
 function emailFooter(email) {
+  const addr = process.env.COMPANY_ADDRESS || 'MissedCallio, Cape Town, South Africa';
   return `<p style="font-size:11px;color:#aaa;margin-top:32px;text-align:center">
-    MissedCallio · <a href="${unsubLink(email)}" style="color:#aaa">Unsubscribe</a>
+    MissedCallio · ${addr}<br>
+    <a href="${unsubLink(email)}" style="color:#aaa">Unsubscribe</a>
   </p>`;
 }
 
