@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acceptable Use Policy – MissedCallio</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1a1a2e; --muted: #555577;
+    --accent: #4f46e5; --border: #e2e2f0; --card: #f8f8fc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f0f1a; --text: #e8e8f4; --muted: #9999bb;
+      --accent: #818cf8; --border: #2a2a3e; --card: #1a1a2e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f0f1a; --text: #e8e8f4; --muted: #9999bb;
+    --accent: #818cf8; --border: #2a2a3e; --card: #1a1a2e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.7 system-ui, sans-serif; padding: 0 16px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 0 80px; }
+  h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+  .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 40px; }
+  h2 { font-size: 1.15rem; font-weight: 600; margin: 36px 0 10px; color: var(--accent); }
+  p, li { color: var(--text); margin-bottom: 10px; }
+  ul, ol { padding-left: 24px; margin-bottom: 10px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin: 24px 0; }
+  .danger { border-left: 4px solid #ef4444; background: #fef2f2; padding: 14px 18px; border-radius: 4px; margin: 16px 0; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .danger { background: #2a1515; } }
+  :root[data-theme="dark"] .danger { background: #2a1515; }
+  a { color: var(--accent); }
+  footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 0.85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Acceptable Use Policy</h1>
+  <p class="meta">Effective: 1 November 2025 &nbsp;|&nbsp; Applies to all MissedCallio customers and their end users</p>
+
+  <p>This Acceptable Use Policy ("AUP") governs all use of the MissedCallio platform, including the AI receptionist service, SMS messaging, appointment scheduling, and all associated APIs and integrations. By using MissedCallio you agree to comply with this AUP. Violations may result in immediate suspension or termination of your account.</p>
+
+  <h2>1. Permitted Use</h2>
+  <p>MissedCallio may be used solely for:</p>
+  <ul>
+    <li>Receiving and routing inbound telephone calls from your customers to your AI receptionist</li>
+    <li>Capturing caller intent, scheduling appointments, and taking messages on behalf of your business</li>
+    <li>Sending transactional SMS messages (confirmations, reminders) to callers who have provided prior express consent</li>
+    <li>Integrating with authorised third-party services (e.g. HubSpot, Google Calendar) for legitimate business purposes</li>
+  </ul>
+
+  <h2>2. Prohibited Uses</h2>
+  <div class="danger"><strong>The following are strictly prohibited and will result in immediate account termination:</strong></div>
+  <ul>
+    <li><strong>Illegal activities.</strong> Using MissedCallio to facilitate any unlawful activity, including fraud, harassment, defamation, or violations of any applicable law or regulation.</li>
+    <li><strong>Spam and unsolicited messaging.</strong> Sending unsolicited commercial SMS or voice messages, or any communication that violates the Telephone Consumer Protection Act (TCPA), CAN-SPAM Act, or equivalent laws.</li>
+    <li><strong>Deceptive or misleading conduct.</strong> Impersonating another business, person, or government entity; making false or misleading representations to callers.</li>
+    <li><strong>Restricted industries without disclosure.</strong> Operating in highly regulated industries (medical, legal, financial advice, firearms, cannabis, adult content, debt collection, gambling) without disclosing this to MissedCallio and obtaining any required licences.</li>
+    <li><strong>HIPAA-covered communications.</strong> Using MissedCallio as a covered entity or business associate for communications that constitute Protected Health Information (PHI) under HIPAA without a signed Business Associate Agreement.</li>
+    <li><strong>Minor-targeted services.</strong> Directing MissedCallio at audiences known to include children under 13 (US) or 16 (EEA) without full COPPA/GDPR-K compliance.</li>
+    <li><strong>Automated outbound dialling.</strong> Using MissedCallio to place automated outbound calls or mass-dial campaigns without confirmed prior express written consent from each recipient.</li>
+    <li><strong>Data scraping or reverse-engineering.</strong> Scraping caller data at scale, reverse-engineering the platform, or accessing systems beyond your authorised account.</li>
+    <li><strong>Security attacks.</strong> Attempting to compromise the security, integrity, or availability of MissedCallio infrastructure, including denial-of-service attacks, injection attacks, or credential stuffing.</li>
+    <li><strong>Resale without authorisation.</strong> Reselling or sub-licensing MissedCallio services to third parties without MissedCallio's prior written consent.</li>
+    <li><strong>AI training without consent.</strong> Using call recordings, transcripts, or any data derived from MissedCallio to train, fine-tune, or evaluate any AI or machine-learning model without MissedCallio's prior written consent.</li>
+    <li><strong>Sanctions violations.</strong> Using MissedCallio in violation of applicable export control laws or sanctions programmes (OFAC, EU, UN).</li>
+  </ul>
+
+  <h2>3. Caller Consent Obligations</h2>
+  <p>You are solely responsible for ensuring that:</p>
+  <ul>
+    <li>All callers receive a clear, prominent disclosure that calls are answered by an AI and may be recorded or transcribed before substantive conversation begins.</li>
+    <li>Any SMS messages sent via MissedCallio are sent only to recipients who have provided prior express written consent (TCPA) or the equivalent consent required by applicable law.</li>
+    <li>Opt-out requests (STOP, CANCEL, UNSUBSCRIBE, QUIT, END) are honoured immediately and permanently. MissedCallio's platform automates this, but you must not circumvent the suppression list.</li>
+    <li>Calls involving minors (persons under 18) are handled with appropriate safeguards and parental consent where required.</li>
+  </ul>
+
+  <h2>4. Recording and Transcription Notice</h2>
+  <p>MissedCallio transcribes calls using third-party speech-to-text services. You must comply with all applicable call-recording consent laws, including:</p>
+  <ul>
+    <li><strong>One-party-consent states</strong> (federal minimum and most US states): one party to the call must consent.</li>
+    <li><strong>All-party/two-party-consent states</strong> (California, Florida, Illinois, Maryland, Massachusetts, Michigan, Montana, Nevada, New Hampshire, Oregon, Pennsylvania, Washington): all parties must consent before recording begins.</li>
+    <li><strong>International calls</strong>: comply with the recording consent laws of all jurisdictions in which callers are located.</li>
+  </ul>
+  <p>MissedCallio's AI receptionist announces at call start: <em>"I'm an AI assistant. This call may be transcribed…"</em> This satisfies disclosure but may not constitute legal consent in all-party states. You must consult legal counsel to confirm compliance for your specific jurisdiction and use case.</p>
+
+  <h2>5. Data Security</h2>
+  <p>You must implement and maintain appropriate technical and organisational security measures for any data you access, download, or export from MissedCallio, including:</p>
+  <ul>
+    <li>Restricting access to call transcripts and customer data to authorised personnel only</li>
+    <li>Not storing raw call audio files on insecure systems</li>
+    <li>Notifying MissedCallio at <a href="mailto:security@missedcallio.online">security@missedcallio.online</a> within 72 hours if you become aware of any security breach involving MissedCallio data</li>
+  </ul>
+
+  <h2>6. Content Standards</h2>
+  <p>You must not configure your AI receptionist to:</p>
+  <ul>
+    <li>Provide medical diagnosis, specific legal advice, or specific financial advice</li>
+    <li>Discuss or process payment card numbers, bank account numbers, or Social Security numbers verbally</li>
+    <li>Engage in discriminatory conduct on the basis of race, gender, religion, national origin, disability, or any other protected characteristic</li>
+    <li>Generate content that is harassing, threatening, obscene, or defamatory</li>
+  </ul>
+
+  <h2>7. Compliance with Laws</h2>
+  <p>You are responsible for your own compliance with all applicable laws and regulations in every jurisdiction where you operate or where your callers are located. This includes but is not limited to:</p>
+  <ul>
+    <li>TCPA (US), CAN-SPAM (US), CASL (Canada)</li>
+    <li>GDPR (EU/EEA), UK GDPR, POPIA (South Africa)</li>
+    <li>State privacy laws (CCPA/CPRA, VCDPA, CPA, CTDPA, OCPA, etc.)</li>
+    <li>Sector-specific laws applicable to your industry</li>
+  </ul>
+
+  <h2>8. Reporting Violations</h2>
+  <p>To report suspected misuse of MissedCallio by another customer, contact <a href="mailto:abuse@missedcallio.online">abuse@missedcallio.online</a>. We investigate all credible reports and take appropriate action, up to and including account termination and referral to law enforcement.</p>
+
+  <h2>9. Enforcement</h2>
+  <p>MissedCallio reserves the right to:</p>
+  <ul>
+    <li>Suspend or terminate any account found to violate this AUP, with or without prior notice depending on the severity of the violation</li>
+    <li>Remove or disable access to any content or feature associated with a violation</li>
+    <li>Cooperate with law enforcement investigations</li>
+    <li>Seek injunctive relief or other legal remedies for violations that cause or threaten harm</li>
+  </ul>
+  <p>Suspension or termination for AUP violations does not entitle you to a refund except as required by applicable consumer protection law.</p>
+
+  <h2>10. Changes to This Policy</h2>
+  <p>MissedCallio may update this AUP at any time. We will notify registered customers by email at least 14 days before material changes take effect. Continued use of the service after the effective date constitutes acceptance of the revised AUP.</p>
+
+  <h2>11. Contact</h2>
+  <div class="card">
+    <p><strong>MissedCallio – Trust &amp; Safety</strong><br>
+    Email: <a href="mailto:abuse@missedcallio.online">abuse@missedcallio.online</a><br>
+    Security: <a href="mailto:security@missedcallio.online">security@missedcallio.online</a><br>
+    Legal: <a href="mailto:legal@missedcallio.online">legal@missedcallio.online</a></p>
+  </div>
+
+  <footer>
+    <p>&copy; 2025 MissedCallio. All rights reserved. &nbsp;|&nbsp;
+    <a href="/terms">Terms</a> &nbsp;|&nbsp;
+    <a href="/privacy">Privacy</a> &nbsp;|&nbsp;
+    <a href="/cookies">Cookies</a> &nbsp;|&nbsp;
+    <a href="/dpa">DPA</a>
+    </p>
+  </footer>
+</div>
+</body>
+</html>

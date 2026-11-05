@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Incident Response Plan – MissedCallio</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1a1a2e; --muted: #555577;
+    --accent: #4f46e5; --border: #e2e2f0; --card: #f8f8fc;
+    --warn: #b45309; --warn-bg: #fffbeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f0f1a; --text: #e8e8f4; --muted: #9999bb;
+      --accent: #818cf8; --border: #2a2a3e; --card: #1a1a2e;
+      --warn: #fbbf24; --warn-bg: #1f1a0a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f0f1a; --text: #e8e8f4; --muted: #9999bb;
+    --accent: #818cf8; --border: #2a2a3e; --card: #1a1a2e;
+    --warn: #fbbf24; --warn-bg: #1f1a0a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.7 system-ui, sans-serif; padding: 0 16px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 0 80px; }
+  h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+  .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 40px; }
+  h2 { font-size: 1.15rem; font-weight: 600; margin: 36px 0 10px; color: var(--accent); }
+  h3 { font-size: 1rem; font-weight: 600; margin: 20px 0 6px; }
+  p, li { color: var(--text); margin-bottom: 10px; }
+  ul, ol { padding-left: 24px; margin-bottom: 10px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin: 24px 0; }
+  .warn { background: var(--warn-bg); border-left: 4px solid var(--warn); padding: 14px 18px; border-radius: 4px; margin: 16px 0; color: var(--warn); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9rem; }
+  th { background: var(--card); text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--border); font-weight: 600; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .phase { display: inline-block; background: var(--accent); color: #fff; border-radius: 4px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; letter-spacing: .04em; }
+  a { color: var(--accent); }
+  footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 0.85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Incident Response Plan</h1>
+  <p class="meta">Version 1.0 &nbsp;|&nbsp; Effective: 1 November 2025 &nbsp;|&nbsp; Reviewed annually</p>
+
+  <p>This Incident Response Plan ("IRP") documents how MissedCallio detects, contains, investigates, and notifies affected parties in the event of a security breach or personal-data incident. It is shared publicly to demonstrate our commitment to transparency and to help our customers understand their rights and what to expect if an incident occurs.</p>
+
+  <div class="warn">⚠ To report a security vulnerability or suspected breach: <a href="mailto:security@missedcallio.online" style="color:inherit">security@missedcallio.online</a></div>
+
+  <h2>1. Scope</h2>
+  <p>This plan applies to any event that results in, or is suspected to result in, the unauthorised access, disclosure, alteration, or destruction of:</p>
+  <ul>
+    <li>Personal data processed by MissedCallio (caller information, business-owner accounts, call transcripts, appointment records)</li>
+    <li>Confidential business data (API keys, credentials, subscription details)</li>
+    <li>MissedCallio infrastructure (servers, databases, third-party integrations)</li>
+  </ul>
+
+  <h2>2. Classification</h2>
+  <table>
+    <tr><th>Severity</th><th>Definition</th><th>Response SLA</th></tr>
+    <tr><td><strong>P1 – Critical</strong></td><td>Active breach; mass data exfiltration; production systems compromised; ransomware</td><td>Contain within 1 hour; notify within 24 hours</td></tr>
+    <tr><td><strong>P2 – High</strong></td><td>Confirmed unauthorised access to personal data; credential compromise; significant data loss</td><td>Contain within 4 hours; notify within 48 hours</td></tr>
+    <tr><td><strong>P3 – Medium</strong></td><td>Suspected (unconfirmed) breach; minor data exposure; failed attack with potential impact</td><td>Investigate within 24 hours</td></tr>
+    <tr><td><strong>P4 – Low</strong></td><td>Policy violation without data exposure; vulnerability discovered before exploitation</td><td>Remediate within 7 days</td></tr>
+  </table>
+
+  <h2>3. Response Phases</h2>
+
+  <h3><span class="phase">Phase 1</span> Detection &amp; Identification</h3>
+  <ul>
+    <li>Automated alerts (Railway logs, Supabase audit events, anomaly detection) trigger initial triage</li>
+    <li>Any team member may raise an incident by emailing <a href="mailto:security@missedcallio.online">security@missedcallio.online</a></li>
+    <li>Incident lead assigned; unique incident ID created; timeline started</li>
+    <li>Determine: What data? How many individuals? Which systems? Is it ongoing?</li>
+  </ul>
+
+  <h3><span class="phase">Phase 2</span> Containment</h3>
+  <ul>
+    <li><strong>Short-term:</strong> Isolate affected systems; revoke compromised credentials; disable affected integrations; block attacker IP ranges if identifiable</li>
+    <li><strong>Long-term:</strong> Deploy patched system image; rotate all secrets; force-logout all active sessions; re-audit access control</li>
+    <li>Preserve logs and artefacts — do not wipe affected systems until forensic copy secured</li>
+  </ul>
+
+  <h3><span class="phase">Phase 3</span> Investigation &amp; Eradication</h3>
+  <ul>
+    <li>Determine root cause, attack vector, and full scope of data exposure</li>
+    <li>Remove malware, backdoors, or unauthorised access points</li>
+    <li>Apply patches and configuration hardening</li>
+    <li>Verify eradication before returning systems to production</li>
+  </ul>
+
+  <h3><span class="phase">Phase 4</span> Notification</h3>
+
+  <h4 style="margin:14px 0 6px">Regulatory notification deadlines:</h4>
+  <table>
+    <tr><th>Regulator / Law</th><th>Deadline</th><th>Trigger</th></tr>
+    <tr><td>GDPR (EU/EEA) – Supervisory Authority</td><td>72 hours</td><td>Breach likely to result in risk to individuals</td></tr>
+    <tr><td>UK GDPR – ICO</td><td>72 hours</td><td>Same as GDPR</td></tr>
+    <tr><td>POPIA (South Africa) – Information Regulator</td><td>72 hours</td><td>Reasonable grounds to believe unauthorised access occurred</td></tr>
+    <tr><td>US State Breach Laws (all 50 states)</td><td>30–60 days (varies)</td><td>Breach of "personal information" as defined by each state</td></tr>
+    <tr><td>FTC Health Breach Notification Rule</td><td>60 days</td><td>Breach of PHR-identifiable health information</td></tr>
+  </table>
+
+  <h4 style="margin:14px 0 6px">Individual notification:</h4>
+  <ul>
+    <li>Affected individuals notified without undue delay and no later than the applicable regulatory deadline</li>
+    <li>Notification includes: nature of breach, categories of data, likely consequences, measures taken, contact for questions</li>
+    <li>Notification sent by email to the registered account address; SMS where feasible and urgency warrants</li>
+  </ul>
+
+  <h4 style="margin:14px 0 6px">Customer notification (B2B):</h4>
+  <ul>
+    <li>Business customers whose caller data may be affected are notified within 48 hours of confirmed P1/P2 incident</li>
+    <li>Notification via email to the business account owner; dashboard banner if systems are operational</li>
+  </ul>
+
+  <h3><span class="phase">Phase 5</span> Recovery</h3>
+  <ul>
+    <li>Restore systems from verified clean backups where necessary</li>
+    <li>Monitor closely for 72 hours post-restoration for reinfection or residual attacker access</li>
+    <li>Gradually restore service, verifying functionality and security at each step</li>
+  </ul>
+
+  <h3><span class="phase">Phase 6</span> Post-Incident Review</h3>
+  <ul>
+    <li>Post-mortem within 14 days of incident closure</li>
+    <li>Root cause analysis; timeline of events; what worked, what didn't</li>
+    <li>Remediation action items with owners and deadlines</li>
+    <li>Update this IRP and security controls based on lessons learned</li>
+    <li>Summary shared with affected customers on request</li>
+  </ul>
+
+  <h2>4. Contact Details</h2>
+  <div class="card">
+    <p><strong>Incident Reporting</strong><br>
+    Email: <a href="mailto:security@missedcallio.online">security@missedcallio.online</a><br>
+    Response time target: 4 hours (business hours); 12 hours (nights/weekends) for initial acknowledgement</p>
+
+    <p style="margin-top:16px"><strong>Regulatory Contacts</strong><br>
+    South Africa – Information Regulator: <a href="mailto:inforeg@justice.gov.za">inforeg@justice.gov.za</a><br>
+    EU – Relevant lead supervisory authority depends on affected individual's country of residence<br>
+    UK – Information Commissioner's Office: <a href="https://ico.org.uk/make-a-complaint/" target="_blank" rel="noopener">ico.org.uk/make-a-complaint</a><br>
+    US – FTC: <a href="https://reportfraud.ftc.gov/" target="_blank" rel="noopener">reportfraud.ftc.gov</a></p>
+  </div>
+
+  <h2>5. Responsible Disclosure</h2>
+  <p>MissedCallio operates a responsible disclosure programme. If you discover a security vulnerability in our platform:</p>
+  <ol>
+    <li>Email a description of the vulnerability to <a href="mailto:security@missedcallio.online">security@missedcallio.online</a></li>
+    <li>Allow us a reasonable time (typically 90 days) to investigate and patch before public disclosure</li>
+    <li>Do not access, modify, or exfiltrate data beyond what is necessary to demonstrate the vulnerability</li>
+    <li>Do not disrupt service availability or perform social engineering against our staff</li>
+  </ol>
+  <p>We will acknowledge valid reports within 5 business days, keep you informed of remediation progress, and credit you publicly (with your permission) upon patch release.</p>
+
+  <h2>6. Third-Party Incidents</h2>
+  <p>MissedCallio relies on third-party processors including Vapi AI, Deepgram, Anthropic, ElevenLabs, Twilio, Supabase, Railway, Paddle, Brevo, and Resend. If any of these providers experiences a breach affecting MissedCallio customer data:</p>
+  <ul>
+    <li>MissedCallio will assess the impact on our customers within 24 hours of learning of the provider incident</li>
+    <li>Affected customers will be notified with available details as soon as practicable</li>
+    <li>Mitigation steps (credential rotation, feature disablement) will be taken within the response SLA for the assessed severity</li>
+  </ul>
+
+  <footer>
+    <p>&copy; 2025 MissedCallio. All rights reserved. &nbsp;|&nbsp;
+    <a href="/terms">Terms</a> &nbsp;|&nbsp;
+    <a href="/privacy">Privacy</a> &nbsp;|&nbsp;
+    <a href="/acceptable-use">Acceptable Use</a> &nbsp;|&nbsp;
+    <a href="/dpa">DPA</a>
+    </p>
+  </footer>
+</div>
+</body>
+</html>

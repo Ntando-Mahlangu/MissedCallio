@@ -1,0 +1,263 @@
+<title>Data Processing Addendum</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--black:#0a0a0a;--white:#fafaf8;--gray:#6b6b6b;--gray-light:#e8e6e1;--accent:#ff5c00;--surface:#f2f0eb}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--black:#f0ede8;--white:#111110;--gray:#9a9690;--gray-light:#2a2927;--accent:#ff7733;--surface:#1a1917;color-scheme:dark}}
+:root[data-theme="dark"]{--black:#f0ede8;--white:#111110;--gray:#9a9690;--gray-light:#2a2927;--accent:#ff7733;--surface:#1a1917;color-scheme:dark}
+body{font-family:'DM Sans',sans-serif;background:var(--white);color:var(--black);line-height:1.7;padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
+nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:100;padding:18px 48px;display:flex;align-items:center;gap:16px;background:rgba(250,250,248,0.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--gray-light)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) nav{background:rgba(17,17,16,0.95)}}
+:root[data-theme="dark"] nav{background:rgba(17,17,16,0.95)}
+.logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;text-decoration:none;color:var(--black)}
+.logo span{color:var(--accent)}
+.back{margin-left:auto;font-size:14px;color:var(--gray);text-decoration:none}
+.back:hover{color:var(--black)}
+.container{max-width:760px;margin:0 auto;padding:64px max(24px,env(safe-area-inset-left,0px)) 120px}
+.page-title{font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-2px;margin-bottom:8px;text-wrap:balance}
+.last-updated{font-size:13px;color:var(--gray);margin-bottom:48px}
+h2{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;margin:40px 0 12px;letter-spacing:-0.5px;text-wrap:balance}
+h3{font-size:16px;font-weight:600;margin:20px 0 8px}
+p{font-size:16px;color:#333;margin-bottom:16px}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) p{color:#ccc}}
+:root[data-theme="dark"] p{color:#ccc}
+ul{padding-left:20px;margin-bottom:16px}
+ul li{font-size:16px;color:#333;margin-bottom:8px}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) ul li{color:#ccc}}
+:root[data-theme="dark"] ul li{color:#ccc}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.divider{height:1px;background:var(--gray-light);margin:40px 0}
+.notice-box{background:#fff8f5;border:1px solid #ffd4b8;border-radius:12px;padding:20px 24px;margin:24px 0}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .notice-box{background:#2a1a10;border-color:#7a3d1a}}
+:root[data-theme="dark"] .notice-box{background:#2a1a10;border-color:#7a3d1a}
+.notice-box p{margin:0;color:#333}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .notice-box p{color:#ccc}}
+:root[data-theme="dark"] .notice-box p{color:#ccc}
+table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:15px}
+th{text-align:left;padding:10px 12px;background:var(--surface);font-weight:600;font-size:13px;letter-spacing:0.3px;border-bottom:2px solid var(--gray-light)}
+td{padding:10px 12px;border-bottom:1px solid var(--gray-light);color:#333;vertical-align:top}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) td{color:#ccc}}
+:root[data-theme="dark"] td{color:#ccc}
+.table-wrap{overflow-x:auto;margin-bottom:16px}
+footer{padding:40px max(48px,env(safe-area-inset-left,0px));border-top:1px solid var(--gray-light);display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--gray)}
+.footer-logo{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--black)}
+.footer-logo span{color:var(--accent)}
+.footer-links{display:flex;gap:20px;flex-wrap:wrap}
+.footer-links a{color:var(--gray);text-decoration:none}
+.footer-links a:hover{color:var(--black)}
+@media(max-width:768px){nav{padding:16px 20px}.container{padding:40px 20px 80px}.page-title{font-size:32px}footer{flex-direction:column;gap:12px;text-align:center;padding:24px 20px}}
+</style>
+
+<nav>
+  <a href="/" class="logo">Missed<span>Callio</span></a>
+  <a href="/" class="back">← Back to home</a>
+</nav>
+
+<div class="container">
+  <h1 class="page-title">Data Processing Addendum</h1>
+  <p class="last-updated">Last updated: November 2026</p>
+
+  <div class="notice-box">
+    <p>This DPA applies between MissedCallio and business customers. By using MissedCallio you acknowledge these processing terms. For a countersigned copy, email <strong>support@missedcallio.online</strong> with the subject "DPA Request" and your business name.</p>
+  </div>
+
+  <h2>1. Definitions</h2>
+  <p>For the purposes of this Data Processing Addendum ("DPA"), the following terms have the meanings given below:</p>
+  <ul>
+    <li><strong>Controller</strong> means the business customer that determines the purposes and means of processing Personal Data.</li>
+    <li><strong>Processor</strong> means MissedCallio (Pty) Ltd, which processes Personal Data on behalf of the Controller.</li>
+    <li><strong>Personal Data</strong> means any information relating to an identified or identifiable natural person as defined under applicable Data Protection Laws.</li>
+    <li><strong>Processing</strong> means any operation performed on Personal Data, including collection, storage, use, disclosure, erasure or destruction.</li>
+    <li><strong>Data Subject</strong> means the natural person to whom Personal Data relates — in this context, callers to the Controller's telephone number.</li>
+    <li><strong>Sub-processor</strong> means any third party engaged by MissedCallio to process Personal Data in connection with the Service.</li>
+    <li><strong>Supervisory Authority</strong> means the competent regulatory authority for data protection in the relevant jurisdiction, including the Information Regulator (South Africa), the ICO (UK), and applicable EU data protection authorities.</li>
+    <li><strong>GDPR</strong> means the EU General Data Protection Regulation 2016/679 and, where applicable, the UK GDPR as retained in domestic law.</li>
+    <li><strong>POPIA</strong> means the South African Protection of Personal Information Act 4 of 2013.</li>
+    <li><strong>CCPA</strong> means the California Consumer Privacy Act and its amendment, the CPRA.</li>
+    <li><strong>Data Protection Laws</strong> means all applicable laws relating to the processing of Personal Data, including GDPR, POPIA, and CCPA where relevant.</li>
+  </ul>
+
+  <div class="divider"></div>
+
+  <h2>2. Scope and Purpose</h2>
+  <p>This DPA governs MissedCallio's processing of Personal Data on behalf of the Controller in connection with the AI receptionist service ("Service"). MissedCallio acts as the Processor; the Controller acts as the data controller responsible for determining the lawful basis for processing and ensuring appropriate notices are provided to Data Subjects.</p>
+  <p>MissedCallio shall process Personal Data only on documented instructions from the Controller, including as set out in this DPA and the Terms of Service. MissedCallio shall not process Personal Data for any other purpose unless required to do so by applicable law, in which case MissedCallio shall, to the extent permitted by law, inform the Controller before such processing.</p>
+
+  <div class="divider"></div>
+
+  <h2>3. Nature of Processing</h2>
+  <p>MissedCallio processes Personal Data to deliver the following components of the Service:</p>
+  <ul>
+    <li><strong>Call transcription</strong> — inbound audio streams are transcribed using Deepgram's speech-to-text API.</li>
+    <li><strong>AI conversation</strong> — transcribed text and conversation context are processed by Anthropic's Claude API and orchestrated via the Vapi telephony platform to generate responses and handle the call flow.</li>
+    <li><strong>Voice synthesis</strong> — AI-generated responses are converted to speech via ElevenLabs.</li>
+    <li><strong>Appointment and lead storage</strong> — structured data extracted from calls (names, phone numbers, appointment details) is stored in Supabase (database) hosted on Railway infrastructure.</li>
+    <li><strong>SMS notifications</strong> — appointment confirmations and reminders are sent to callers via Twilio.</li>
+    <li><strong>Email notifications</strong> — notifications to the Controller's team are sent via Brevo and/or Resend.</li>
+  </ul>
+
+  <div class="divider"></div>
+
+  <h2>4. Categories of Data Subjects</h2>
+  <p>The Personal Data processed under this DPA relates to the following categories of Data Subjects:</p>
+  <ul>
+    <li>Individuals who call the Controller's business telephone number(s) that are connected to the MissedCallio Service.</li>
+  </ul>
+
+  <div class="divider"></div>
+
+  <h2>5. Categories of Personal Data</h2>
+  <p>MissedCallio may process the following categories of Personal Data as part of the Service:</p>
+  <ul>
+    <li>Names (as provided by the caller during the call)</li>
+    <li>Telephone numbers (caller ID and numbers provided during the call)</li>
+    <li>Call transcripts (a full text record of the conversation)</li>
+    <li>Appointment details (date, time, type of appointment, and related notes)</li>
+    <li>Reason for calling and any additional information the caller voluntarily provides</li>
+  </ul>
+  <p>MissedCallio does not intentionally collect special categories of Personal Data (health data, financial account data, government identification numbers, etc.). The Controller must configure the Service to avoid collecting such data and must not instruct MissedCallio to process it without a specific written agreement.</p>
+
+  <div class="divider"></div>
+
+  <h2>6. Controller Obligations</h2>
+  <p>The Controller shall:</p>
+  <ul>
+    <li>Provide MissedCallio with lawful, documented instructions for processing Personal Data and ensure those instructions comply with applicable Data Protection Laws.</li>
+    <li>Establish and maintain an appropriate lawful basis for processing caller Personal Data (such as legitimate interests or consent) and document that basis.</li>
+    <li>Ensure that callers are provided with adequate notice — through appropriate means such as a recorded message at the start of the call, a website privacy notice, or other disclosure — that their calls are handled by an AI system and that call recordings or transcripts may be retained.</li>
+    <li>Maintain an up-to-date privacy notice that covers the processing activities described in this DPA.</li>
+    <li>Not instruct MissedCallio to process Personal Data in a manner that would violate any applicable law, including by instructing collection of special category data, data from children under 13, or payment card data via voice.</li>
+    <li>Cooperate with MissedCallio in responding to Data Subject requests and regulatory inquiries.</li>
+  </ul>
+
+  <div class="divider"></div>
+
+  <h2>7. Processor Obligations</h2>
+  <p>MissedCallio shall:</p>
+  <ul>
+    <li><strong>Instructions</strong> — process Personal Data only on documented instructions from the Controller and not for its own independent purposes.</li>
+    <li><strong>Confidentiality</strong> — ensure that all personnel authorised to process Personal Data are bound by appropriate confidentiality obligations.</li>
+    <li><strong>Security</strong> — implement and maintain appropriate technical and organisational security measures as described in Section 10 of this DPA.</li>
+    <li><strong>Sub-processors</strong> — only engage Sub-processors listed in Section 8 (or added with notice as described therein) and ensure they are bound by data protection obligations equivalent to those in this DPA.</li>
+    <li><strong>Breach notification</strong> — notify the Controller without undue delay, and in any event within 24 hours of becoming aware, of any confirmed personal data breach affecting the Controller's data.</li>
+    <li><strong>Data Subject requests</strong> — assist the Controller in fulfilling Data Subject rights requests (access, rectification, erasure, restriction, portability, objection) as described in Section 11.</li>
+    <li><strong>Deletion on termination</strong> — delete or return all Personal Data upon termination of the Service as described in Section 12.</li>
+    <li><strong>Regulatory assistance</strong> — provide reasonable assistance to the Controller in complying with its obligations under applicable Data Protection Laws, including data protection impact assessments where required.</li>
+  </ul>
+
+  <div class="divider"></div>
+
+  <h2>8. Sub-processors</h2>
+  <p>The Controller provides general authorisation for MissedCallio to engage the following Sub-processors. MissedCallio will provide at least 14 days' notice before engaging any new Sub-processor, allowing the Controller to object on reasonable data protection grounds.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Sub-processor</th>
+          <th>Website</th>
+          <th>Location</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Vapi</td><td>vapi.ai</td><td>USA</td><td>Telephony orchestration and AI call handling</td></tr>
+        <tr><td>Anthropic</td><td>anthropic.com</td><td>USA</td><td>Large language model (AI responses)</td></tr>
+        <tr><td>Deepgram</td><td>deepgram.com</td><td>USA</td><td>Speech-to-text transcription</td></tr>
+        <tr><td>ElevenLabs</td><td>elevenlabs.io</td><td>USA</td><td>Voice synthesis (text-to-speech)</td></tr>
+        <tr><td>Twilio</td><td>twilio.com</td><td>USA</td><td>SMS delivery</td></tr>
+        <tr><td>Brevo</td><td>brevo.com</td><td>EU / USA</td><td>Transactional email</td></tr>
+        <tr><td>Resend</td><td>resend.com</td><td>USA</td><td>Transactional email</td></tr>
+        <tr><td>Supabase</td><td>supabase.com</td><td>USA</td><td>Database storage</td></tr>
+        <tr><td>Railway</td><td>railway.com</td><td>USA</td><td>Application hosting and infrastructure</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="divider"></div>
+
+  <h2>9. International Transfers</h2>
+  <p>Where Personal Data is transferred from the European Economic Area, the United Kingdom, or the Republic of South Africa to Sub-processors located in the United States or other third countries, MissedCallio will ensure that such transfers are made in accordance with applicable Data Protection Laws:</p>
+  <ul>
+    <li><strong>EU/EEA and UK transfers</strong> — transfers are covered by the European Commission's Standard Contractual Clauses (SCCs) as applicable, or by the UK International Data Transfer Agreement (IDTA) where the UK GDPR applies. MissedCallio ensures that each relevant Sub-processor has executed SCCs or equivalent transfer mechanisms.</li>
+    <li><strong>South Africa transfers</strong> — transfers of personal information from South Africa to third parties in other countries are made in accordance with the conditions for transfer set out in POPIA Section 72, including that the recipient country provides an adequate level of protection, or that the transfer is authorised by appropriate safeguards or the data subject's consent.</li>
+  </ul>
+  <p>Copies of applicable transfer mechanisms are available to the Controller on written request.</p>
+
+  <div class="divider"></div>
+
+  <h2>10. Security Measures</h2>
+  <p>MissedCallio implements the following technical and organisational security measures:</p>
+  <ul>
+    <li><strong>Encryption in transit</strong> — all data transmitted between services is encrypted using TLS 1.2 or higher.</li>
+    <li><strong>Encryption at rest</strong> — Personal Data stored in Supabase is encrypted at rest using AES-256.</li>
+    <li><strong>Access controls</strong> — role-based access control (RBAC) is applied to all systems. Access to production data is restricted to authorised personnel on a need-to-know basis.</li>
+    <li><strong>Multi-factor authentication</strong> — MFA is required for all administrative access to production systems.</li>
+    <li><strong>Tenant isolation</strong> — each business customer's data is logically isolated using unique identifiers. Cross-tenant access is prevented at the application and database levels.</li>
+    <li><strong>Audit logs</strong> — access to and modification of Personal Data is logged and those logs are retained for a minimum of 90 days.</li>
+    <li><strong>Incident response</strong> — MissedCallio maintains an incident response plan covering detection, containment, notification, and post-incident review. See the Incident Response Policy at /incident-response.</li>
+    <li><strong>Vendor security</strong> — Sub-processors are selected in part based on their security certifications and practices, including SOC 2 compliance where available.</li>
+  </ul>
+
+  <div class="divider"></div>
+
+  <h2>11. Data Subject Requests</h2>
+  <p>Where MissedCallio receives a Data Subject request directly (e.g. a caller requesting access to or erasure of their call transcript), MissedCallio will promptly forward that request to the Controller. MissedCallio will provide reasonable technical assistance to the Controller to enable it to respond to such requests within the statutory timeframes.</p>
+  <p>Controllers may submit Data Subject assistance requests to <a href="mailto:support@missedcallio.online">support@missedcallio.online</a>. MissedCallio aims to provide the requested technical assistance within 5 business days of receiving a valid request.</p>
+
+  <div class="divider"></div>
+
+  <h2>12. Retention and Deletion</h2>
+  <p>MissedCallio applies the following default retention periods, which may be adjusted by documented Controller instruction within the limits of applicable law:</p>
+  <ul>
+    <li><strong>Call transcripts</strong> — deleted 30 days after the call date.</li>
+    <li><strong>SMS logs</strong> — deleted 90 days after sending.</li>
+    <li><strong>Appointment and lead records</strong> — retained for the duration of the Controller's active subscription and deleted within 30 days of contract termination.</li>
+    <li><strong>Consent and audit records</strong> — retained for the period required by applicable law to demonstrate compliance (typically 3–5 years), after which they are deleted.</li>
+  </ul>
+  <p>Upon termination of the Service for any reason, MissedCallio will delete all Personal Data belonging to the Controller within 30 days, except where retention is required by law. The Controller may request written confirmation of deletion.</p>
+
+  <div class="divider"></div>
+
+  <h2>13. Audit Rights</h2>
+  <p>The Controller may request written confirmation of MissedCallio's compliance with this DPA once per calendar year at no additional cost. MissedCallio will respond to such requests within 30 business days.</p>
+  <p>Where the Controller has reasonable grounds to believe MissedCallio is not complying with this DPA, the Controller may, with at least 30 days' written notice and at its own cost, conduct or commission a data protection audit. Any audit must be conducted during normal business hours, must not unreasonably disrupt MissedCallio's operations, and must be subject to appropriate confidentiality undertakings.</p>
+  <p>MissedCallio may satisfy audit requests by providing relevant third-party audit reports (e.g. SOC 2 Type II) where these cover the subject matter of the audit request.</p>
+
+  <div class="divider"></div>
+
+  <h2>14. Liability</h2>
+  <p>Each party shall be liable for any damages arising from its own breach of applicable Data Protection Laws. Where both parties contribute to a breach, liability shall be apportioned according to each party's degree of fault.</p>
+  <p>MissedCallio's total liability under this DPA shall not exceed the limits set out in the Terms of Service, except where such limitation is not permitted by applicable Data Protection Laws.</p>
+
+  <div class="divider"></div>
+
+  <h2>15. Governing Law</h2>
+  <p>This DPA is governed by the laws of the Republic of South Africa. Any dispute arising from this DPA shall be subject to the exclusive jurisdiction of the courts of South Africa.</p>
+  <p>This DPA forms part of and supplements the MissedCallio Terms of Service. In the event of any conflict between this DPA and the Terms of Service with respect to the processing of Personal Data, this DPA shall prevail.</p>
+
+  <div class="divider"></div>
+
+  <h2>16. How to Execute This DPA</h2>
+  <p>To obtain a countersigned copy of this DPA for your records:</p>
+  <ul>
+    <li>Email <a href="mailto:support@missedcallio.online">support@missedcallio.online</a></li>
+    <li>Use the subject line: <strong>DPA Request</strong></li>
+    <li>Include your business name and registered address</li>
+  </ul>
+  <p>MissedCallio will review and countersign the DPA within 5 business days. By using the MissedCallio Service, you acknowledge and agree to these data processing terms in their current form, regardless of whether a countersigned copy has been exchanged.</p>
+</div>
+
+<footer>
+  <div class="footer-logo">Missed<span>Callio</span></div>
+  <div class="footer-links">
+    <a href="/terms">Terms</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/refund">Refunds</a>
+    <a href="/cookies">Cookies</a>
+    <a href="/">Home</a>
+  </div>
+</footer>

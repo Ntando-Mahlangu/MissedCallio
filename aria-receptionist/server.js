@@ -98,7 +98,10 @@ app.get('/terms',           (_req, res) => res.sendFile('terms.html',           
 app.get('/privacy',         (_req, res) => res.sendFile('privacy.html',         { root: __dirname }));
 app.get('/refund',          (_req, res) => res.sendFile('refund.html',          { root: __dirname }));
 app.get('/cookies',         (_req, res) => res.sendFile('cookies.html',         { root: __dirname }));
-app.get('/call-forwarding', (_req, res) => res.sendFile('call-forwarding.html', { root: __dirname }));
+app.get('/call-forwarding',  (_req, res) => res.sendFile('call-forwarding.html',  { root: __dirname }));
+app.get('/dpa',             (_req, res) => res.sendFile('dpa.html',             { root: __dirname }));
+app.get('/acceptable-use',  (_req, res) => res.sendFile('acceptable-use.html',  { root: __dirname }));
+app.get('/incident-response',(_req, res) => res.sendFile('incident-response.html', { root: __dirname }));
 
 // =============================================================
 //  RATE LIMITERS
@@ -1525,6 +1528,7 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
 
   const token = await signToken(business.id);
   console.log(`[auth] login verified: ${business.email}`);
+  auditLog(business.id, 'login', { ip: req.ip });
   res.json({ success: true, token, business });
 });
 
@@ -1589,6 +1593,7 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
   if (Object.keys(updates).length === 0) return res.json({ success: true });
   const { error } = await supabase.from('businesses').update(updates).eq('id', businessId);
   if (error) return res.status(500).json({ error: error.message });
+  auditLog(businessId, 'settings_updated', { fields: Object.keys(updates), ip: req.ip });
 
   // Regenerate Vapi assistant if prompt-affecting fields changed
   const promptFields = ['biz_hours', 'biz_address', 'biz_pricing', 'hold_message', 'ai_name', 'after_hours_only'];
@@ -2080,12 +2085,14 @@ app.get('/admin/calls/:businessId', adminAuth, async (req, res) => {
 app.post('/api/aria/pause', authMiddleware, async (req, res) => {
   const { error } = await supabase.from('businesses').update({ aria_paused: true }).eq('id', req.businessId);
   if (error) return res.status(500).json({ error: error.message });
+  auditLog(req.businessId, 'aria_paused', { ip: req.ip });
   res.json({ success: true, paused: true });
 });
 
 app.post('/api/aria/resume', authMiddleware, async (req, res) => {
   const { error } = await supabase.from('businesses').update({ aria_paused: false }).eq('id', req.businessId);
   if (error) return res.status(500).json({ error: error.message });
+  auditLog(req.businessId, 'aria_resumed', { ip: req.ip });
   res.json({ success: true, paused: false });
 });
 
@@ -2641,6 +2648,194 @@ async function runUsageNotificationPoller() {
 }
 
 setInterval(runUsageNotificationPoller, 6 * 60 * 60 * 1000); // every 6 hours
+
+// =============================================================
+//  AUDIT LOG HELPER
+// =============================================================
+async function auditLog(businessId, action, details = {}) {
+  try {
+    await supabase.from('audit_logs').insert({
+      business_id: businessId,
+      action,
+      details: JSON.stringify(details),
+    });
+  } catch (err) {
+    console.error('[audit] failed to write log:', err.message);
+  }
+}
+
+// =============================================================
+//  DATA RETENTION PURGE — runs daily at 03:00 UTC
+// =============================================================
+async function runRetentionPurge() {
+  const hour = new Date().getUTCHours();
+  if (hour !== 3) return;
+
+  try {
+    // Transcripts and call records older than 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { count: callsNulled } = await supabase
+      .from('calls')
+      .update({ transcript: null })
+      .lt('started_at', thirtyDaysAgo)
+      .not('transcript', 'is', null)
+      .select('id', { count: 'exact', head: true });
+    if (callsNulled) console.log(`[retention] nulled transcripts on ${callsNulled} calls`);
+
+    // Leads older than 90 days (caller-side data)
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const { count: leadsDeleted } = await supabase
+      .from('leads')
+      .delete({ count: 'exact' })
+      .lt('received_at', ninetyDaysAgo);
+    if (leadsDeleted) console.log(`[retention] deleted ${leadsDeleted} leads older than 90 days`);
+
+    // Expired auth sessions
+    const { count: sessionsDeleted } = await supabase
+      .from('auth_sessions')
+      .delete({ count: 'exact' })
+      .lt('expires_at', new Date().toISOString());
+    if (sessionsDeleted) console.log(`[retention] deleted ${sessionsDeleted} expired auth sessions`);
+
+    // Expired OTPs
+    await supabase.from('auth_otps').delete().lt('expires_at', new Date().toISOString());
+
+    // Notifications older than 90 days
+    await supabase.from('notifications').delete().lt('created_at', ninetyDaysAgo);
+
+    // Audit logs older than 1 year
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from('audit_logs').delete().lt('created_at', oneYearAgo);
+
+  } catch (err) {
+    console.error('[retention] purge error:', err.message);
+  }
+}
+
+setInterval(runRetentionPurge, 60 * 60 * 1000); // hourly, executes logic only at 03:00 UTC
+
+// =============================================================
+//  DATA EXPORT — GET /api/account/export
+// =============================================================
+app.get('/api/account/export', authMiddleware, async (req, res) => {
+  try {
+    const [
+      { data: biz },
+      { data: leads },
+      { data: calls },
+      { data: appointments },
+      { data: staff },
+    ] = await Promise.all([
+      supabase.from('businesses').select(
+        'id, name, email, business_name, mobile_number, industry, biz_hours, biz_address, plan, status, created_at, timezone'
+      ).eq('id', req.businessId).single(),
+      supabase.from('leads').select('*').eq('business_id', req.businessId).order('received_at', { ascending: false }),
+      supabase.from('calls').select('id, caller_number, started_at, ended_at, duration_seconds, status, transcript').eq('business_id', req.businessId).order('started_at', { ascending: false }),
+      supabase.from('appointments').select('*').eq('business_id', req.businessId).order('appointment_time', { ascending: false }),
+      supabase.from('staff').select('name, role, phone, email, active, created_at').eq('business_id', req.businessId),
+    ]);
+
+    await auditLog(req.businessId, 'data_export', { ip: req.ip });
+
+    const exportData = {
+      exported_at: new Date().toISOString(),
+      account: biz,
+      leads: leads || [],
+      calls: calls || [],
+      appointments: appointments || [],
+      staff: staff || [],
+    };
+
+    res.setHeader('Content-Disposition', `attachment; filename="missedcallio-export-${Date.now()}.json"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.json(exportData);
+  } catch (err) {
+    console.error('[export] error:', err.message);
+    res.status(500).json({ error: 'Export failed. Please try again.' });
+  }
+});
+
+// =============================================================
+//  ACCOUNT DELETION — DELETE /api/account
+// =============================================================
+app.delete('/api/account', authMiddleware, async (req, res) => {
+  try {
+    const { data: biz } = await supabase.from('businesses').select('id, email, business_name, paddle_subscription_id').eq('id', req.businessId).single();
+    if (!biz) return res.status(404).json({ error: 'Account not found.' });
+
+    await auditLog(req.businessId, 'account_deletion_requested', { email: biz.email, ip: req.ip });
+
+    // Cancel Paddle subscription if active
+    if (biz.paddle_subscription_id && process.env.PADDLE_API_KEY) {
+      const paddleBase = process.env.PADDLE_ENV === 'sandbox' ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
+      await fetch(`${paddleBase}/subscriptions/${biz.paddle_subscription_id}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.PADDLE_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ effective_from: 'immediately' }),
+      }).catch(err => console.error('[account-delete] paddle cancel failed:', err.message));
+    }
+
+    // Delete Vapi assistant
+    if (process.env.VAPI_API_KEY) {
+      const { data: bizVapi } = await supabase.from('businesses').select('vapi_assistant_id').eq('id', req.businessId).single();
+      if (bizVapi?.vapi_assistant_id) {
+        await fetch(`https://api.vapi.ai/assistant/${bizVapi.vapi_assistant_id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${process.env.VAPI_API_KEY}` },
+        }).catch(() => {});
+      }
+    }
+
+    // Delete all business data (cascade deletes handle child tables)
+    // Order matters for tables without cascade
+    await supabase.from('notifications').delete().eq('business_id', req.businessId);
+    await supabase.from('leads').delete().eq('business_id', req.businessId);
+    await supabase.from('calls').delete().eq('business_id', req.businessId);
+    await supabase.from('auth_sessions').delete().eq('business_id', req.businessId);
+    await supabase.from('audit_logs').delete().eq('business_id', req.businessId);
+    // appointments, staff, team_members have ON DELETE CASCADE
+    await supabase.from('businesses').delete().eq('id', req.businessId);
+
+    // Send confirmation email (best effort)
+    if (hasEmailProvider()) {
+      sendEmail({
+        to: biz.email,
+        subject: 'Your MissedCallio account has been deleted',
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
+          <h2>Account deleted</h2>
+          <p>Hi,</p>
+          <p>Your MissedCallio account for <strong>${biz.business_name}</strong> has been permanently deleted. All your call data, leads, and appointments have been removed from our systems.</p>
+          <p>Backups are expired within 30 days per our retention policy.</p>
+          <p>If you deleted this by mistake or have questions, contact us at <a href="mailto:support@missedcallio.online">support@missedcallio.online</a>.</p>
+          <p>— The MissedCallio Team</p>
+        </div>`
+      }).catch(() => {});
+    }
+
+    res.json({ success: true, message: 'Account and all associated data have been permanently deleted.' });
+  } catch (err) {
+    console.error('[account-delete] error:', err.message);
+    res.status(500).json({ error: 'Deletion failed. Please contact support@missedcallio.online.' });
+  }
+});
+
+// =============================================================
+//  AUDIT LOG READ — GET /api/audit-log
+// =============================================================
+app.get('/api/audit-log', authMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('id, action, details, created_at')
+      .eq('business_id', req.businessId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    res.json({ logs: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch audit log.' });
+  }
+});
 
 // =============================================================
 //  START
