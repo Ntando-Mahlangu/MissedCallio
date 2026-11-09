@@ -274,7 +274,7 @@ app.post('/signup', signupLimiter, async (req, res) => {
         biz_address:   bizAddress || '',
         biz_pricing:   bizPricing || 'Please call us for a quote',
         plan:           plan || 'growth',
-        trial_ends_at:  new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        trial_ends_at:  new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
         status:         'pending_verification',
         calls_reset_at: new Date().toISOString(),
         departments:   departments || null,
@@ -1378,7 +1378,7 @@ async function sendWelcomeEmail(business, phoneNumber) {
         <p>Your AI receptionist is set up for <strong>${business.business_name}</strong>.</p>
         <br/>${instructions}<br/><br/>
         <p>You'll get an SMS at <strong>${business.mobile_number}</strong> every time Aria captures a lead.</p>
-        <p>Your <strong>3-day free trial</strong> starts now.</p>
+        <p>Your <strong>1-day free trial</strong> starts now.</p>
         <br/>
         <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
            style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">
@@ -2320,7 +2320,7 @@ async function runReminderPoller() {
                 html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
                   <h2 style="color:#ff5c00">Your trial has ended</h2>
                   <p>Hi ${biz.name || biz.business_name},</p>
-                  <p>Your 3-day free trial for <strong>${biz.business_name}</strong> has ended.</p>
+                  <p>Your 1-day free trial for <strong>${biz.business_name}</strong> has ended.</p>
                   <p>Upgrade now to keep Aria answering your calls. It takes under a minute.</p>
                   <br/>
                   <a href="${SERVER_URL}/#pricing"
@@ -2354,14 +2354,14 @@ setInterval(runReminderPoller, 5 * 60 * 1000);
 console.log('[startup] Reminder poller started');
 
 // =============================================================
-//  TRIAL WARNING POLLER — sends 2-day warning email
+//  TRIAL WARNING POLLER — sends 4-hour warning email
 // =============================================================
 async function runTrialWarningPoller() {
   try {
     if (!hasEmailProvider()) return;
     const now        = new Date();
-    const windowFrom = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
-    const windowTo   = new Date(now.getTime() + 2.25 * 24 * 60 * 60 * 1000).toISOString();
+    const windowFrom = new Date(now.getTime() + 4 * 60 * 60 * 1000).toISOString();
+    const windowTo   = new Date(now.getTime() + 5 * 60 * 60 * 1000).toISOString();
 
     const { data: businesses } = await supabase
       .from('businesses').select('id, name, email, business_name, plan')
@@ -2375,11 +2375,11 @@ async function runTrialWarningPoller() {
       try {
         await sendEmail({
           to: biz.email,
-          subject: `Your MissedCallio trial ends in 2 days`,
+          subject: `Your MissedCallio trial ends in 4 hours`,
           html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
-            <h2 style="color:#ff5c00">Your free trial ends in 2 days</h2>
+            <h2 style="color:#ff5c00">Your free trial ends in 4 hours</h2>
             <p>Hi ${biz.name},</p>
-            <p>Your 3-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 2 days.</p>
+            <p>Your 1-day free trial for <strong>${biz.business_name}</strong> on the <strong>${biz.plan}</strong> plan expires in 4 hours.</p>
             <p>To keep Aria answering your calls, add a payment method before your trial ends.</p>
             <br/>
             <a href="${process.env.SERVER_URL || 'https://missedcallio.online'}/dashboard"
@@ -2500,8 +2500,8 @@ async function runDripPoller() {
   const drips = [
     {
       flag:    'drip_day1_sent',
-      minMs:   23 * 3600 * 1000,
-      maxMs:   26 * 3600 * 1000,
+      minMs:   4 * 3600 * 1000,
+      maxMs:   6 * 3600 * 1000,
       subject: 'Set up call forwarding in 2 minutes',
       html: (biz) => `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
         <h2 style="color:#ff5c00">One quick step to go live</h2>
@@ -2517,13 +2517,13 @@ async function runDripPoller() {
     },
     {
       flag:    'drip_day3_sent',
-      minMs:   71 * 3600 * 1000,
-      maxMs:   74 * 3600 * 1000,
+      minMs:   11 * 3600 * 1000,
+      maxMs:   13 * 3600 * 1000,
       subject: 'Has Aria answered a call yet?',
       html: (biz) => `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
         <h2 style="color:#ff5c00">Check in from MissedCallio</h2>
         <p>Hi ${biz.name},</p>
-        <p>You're 3 days into your trial. Have you had a chance to set up call forwarding yet?</p>
+        <p>You're a few hours into your trial. Have you had a chance to set up call forwarding yet?</p>
         <p>If Aria has answered a call, log in to your dashboard to see the leads she's captured. If not, forwarding takes 2 minutes and she'll be live instantly.</p>
         <p><strong>Tip:</strong> If you're not sure Aria is working, call your number from another phone — she should answer within 2 rings.</p>
         <br/>
@@ -2534,13 +2534,13 @@ async function runDripPoller() {
     },
     {
       flag:    'drip_day6_sent',
-      minMs:   143 * 3600 * 1000,
-      maxMs:   146 * 3600 * 1000,
-      subject: 'Your trial ends tomorrow — keep Aria answering',
+      minMs:   19 * 3600 * 1000,
+      maxMs:   21 * 3600 * 1000,
+      subject: 'Your trial ends in a few hours — keep Aria answering',
       html: (biz) => `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px">
-        <h2 style="color:#ff5c00">Your trial ends tomorrow</h2>
+        <h2 style="color:#ff5c00">Your trial ends soon</h2>
         <p>Hi ${biz.name},</p>
-        <p>Your free trial for <strong>${biz.business_name}</strong> ends in less than 24 hours.</p>
+        <p>Your free trial for <strong>${biz.business_name}</strong> ends in a few hours.</p>
         <p>If you'd like Aria to keep answering your calls, add a payment method now — it takes under a minute and you won't be charged until the trial ends.</p>
         <br/>
         <a href="${base}/dashboard" style="background:#ff5c00;color:white;padding:12px 28px;border-radius:99px;text-decoration:none;font-weight:500;display:inline-block">Keep Aria active →</a>
